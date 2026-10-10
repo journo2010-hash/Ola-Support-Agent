@@ -1,65 +1,90 @@
-"""Simple in-memory conversation history for support sessions."""
+"""Manage multi-turn support conversations using LangChain chat history."""
 
-from collections import defaultdict
-from threading import RLock
+from langchain_core.chat_history import InMemoryChatMessageHistory
+from langchain_core.messages import AIMessage, HumanMessage
 
 
 class SessionMemory:
-    """Store conversation turns separately for each session."""
+    """Maintain separate, bounded conversation histories for each session."""
 
-    def __init__(self, max_turns: int = 10):
+    def __init__(self, max_turns=10):
         self.max_turns = max_turns
-        self._sessions = defaultdict(list)
-        self._lock = RLock()
+        self.sessions = {}
 
-    def add_turn(
-        self,
-        session_id: str,
-        user_message: str,
-        assistant_response: str,
-    ) -> None:
-        """Save one user/assistant conversation turn."""
+    def _get_session(self, session_id):
+        """Get or create a session's LangChain chat history."""
+        if session_id not in self.sessions:
+            self.sessions[session_id] = InMemoryChatMessageHistory()
+        return self.sessions[session_id]
 
-        with self._lock:
-            history = self._sessions[session_id]
-            history.append({
-                "user": user_message,
-                "assistant": assistant_response,
-            })
-            self._sessions[session_id] = history[-self.max_turns:]
+    def add_turn(self, session_id, user_message, assistant_message):
+        """Store a complete user and assistant exchange."""
+        history = self._get_session(session_id)
 
-    def get_history(self, session_id: str) -> list[dict[str, str]]:
-        """Return a copy of the session's conversation history."""
+        history.add_messages([
+            HumanMessage(content=user_message),
+            AIMessage(content=assistant_message),
+        ])
 
-        with self._lock:
-            return list(self._sessions.get(session_id, []))
+        max_messages = self.max_turns * 2
 
-    def clear_session(self, session_id: str) -> None:
-        """Reset one session without affecting other sessions."""
+        if len(history.messages) > max_messages:
+            history.messages = history.messages[-max_messages:]
 
-        with self._lock:
-            self._sessions.pop(session_id, None)
+    def get_history(self, session_id):
+        """Return conversation turns in the format expected by mock_workflow.py."""
+        if session_id not in self.sessions:
+            return []
+
+        messages = self.sessions[session_id].messages
+        turns = []
+
+        for index in range(0, len(messages) - 1, 2):
+            user_message = messages[index]
+            assistant_message = messages[index + 1]
+
+            if (
+                isinstance(user_message, HumanMessage)
+                and isinstance(assistant_message, AIMessage)
+            ):
+                turns.append({
+                    "user": user_message.content,
+                    "assistant": assistant_message.content,
+                })
+
+        return turns
+
+    def clear_session(self, session_id):
+        """Clear one session without affecting other sessions."""
+        if session_id in self.sessions:
+            self.sessions[session_id].clear()
 
 
 if __name__ == "__main__":
-    memory = SessionMemory(max_turns=3)
+    memory = SessionMemory(max_turns=2)
 
     memory.add_turn(
-        "session-1",
+        "demo",
         "What is the status of OLA-0001?",
-        "Ticket OLA-0001 is Escalated.",
+        "The ticket is Open.",
     )
     memory.add_turn(
-        "session-1",
+        "demo",
         "What is its escalation score?",
         "The escalation score is 0.173.",
     )
 
-    print("Session memory test:")
-    print(memory.get_history("session-1"))
+    history = memory.get_history("demo")
 
-    memory.clear_session("session-1")
-    print("After reset:", memory.get_history("session-1"))
+    assert len(history) == 2
+    assert history[0]["user"] == "What is the status of OLA-0001?"
+    assert history[1]["assistant"] == "The escalation score is 0.173."
+    assert memory.get_history("other-session") == []
 
-    assert memory.get_history("session-1") == []
-    print("SESSION MEMORY TEST: SUCCESS")
+    memory.clear_session("demo")
+    assert memory.get_history("demo") == []
+
+    print("LANGCHAIN SESSION MEMORY TEST: PASSED")
+    print("Conversation history format: PASSED")
+    print("Session isolation: PASSED")
+    print("Session reset: PASSED")
