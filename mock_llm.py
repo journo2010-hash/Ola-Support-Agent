@@ -43,7 +43,9 @@ class MockSupportLLM(BaseLLM):
                     parts.append(str(content))
             else:
                 content = getattr(message, "content", None)
-                parts.append(str(content if content is not None else message))
+                parts.append(
+                    str(content if content is not None else message)
+                )
 
         return "\n".join(parts)
 
@@ -72,12 +74,10 @@ class MockSupportLLM(BaseLLM):
         """Extract the user's question from the current task."""
         description = getattr(from_task, "description", "") or ""
 
-        # Prefer the task description because it usually contains the
-        # current question without unrelated conversation history.
         patterns = [
             r"this question:\s*(.+?)\.\s*Use the search_support_policies",
-            r"Question:\s*(.+?)\.\s*Report the returned ticket data",
-            r"Answer this question:\s*(.+?)\.\s*Use only the verified",
+            r"question:\s*(.+?)\.\s*If it contains a ticket ID",
+            r"Answer the question:\s*(.+?)\.\s*Use only the preceding",
         ]
 
         for pattern in patterns:
@@ -89,7 +89,6 @@ class MockSupportLLM(BaseLLM):
             if match:
                 return match.group(1).strip()
 
-        # Fallback for task templates that differ between CrewAI versions.
         match = re.search(
             r"\b(?:question|request)\s*:\s*(.+)",
             description,
@@ -103,18 +102,15 @@ class MockSupportLLM(BaseLLM):
 
     @staticmethod
     def _has_tool_result(messages: Any) -> bool:
-        """Check whether CrewAI has already supplied a tool observation."""
+        """Check whether CrewAI has supplied a tool observation."""
         if not isinstance(messages, list):
             return False
 
-        for message in messages:
-            if not isinstance(message, dict):
-                continue
-
-            if message.get("role") == "tool":
-                return True
-
-        return False
+        return any(
+            isinstance(message, dict)
+            and message.get("role") == "tool"
+            for message in messages
+        )
 
     @staticmethod
     def _last_tool_result(messages: Any) -> str:
@@ -136,7 +132,7 @@ class MockSupportLLM(BaseLLM):
         name: str,
         arguments: dict[str, Any],
     ) -> list[dict[str, Any]]:
-        """Return a native function-call response understood by CrewAI."""
+        """Return a function-call response for CrewAI."""
         self._call_counter += 1
 
         return [
@@ -149,6 +145,23 @@ class MockSupportLLM(BaseLLM):
                 },
             }
         ]
+
+    @staticmethod
+    def _extract_json_after_label(text: str, label: str):
+        """Extract a JSON object after a known tool-result label."""
+        marker = f"{label}:"
+        position = text.rfind(marker)
+
+        if position == -1:
+            return None
+
+        content = text[position + len(marker):].lstrip()
+
+        try:
+            result, _ = json.JSONDecoder().raw_decode(content)
+            return result if isinstance(result, dict) else None
+        except json.JSONDecodeError:
+            return None
 
     def call(
         self,
@@ -163,7 +176,7 @@ class MockSupportLLM(BaseLLM):
         """Execute deterministic local reasoning and tool selection."""
         text = self._message_text(messages)
 
-        # Keep structured-output support for compatible tasks.
+        # Preserve structured-output support for compatible tasks.
         if response_model is not None:
             fields = getattr(response_model, "model_fields", {})
             values = {}
@@ -194,8 +207,7 @@ class MockSupportLLM(BaseLLM):
         tool_names = self._tool_names(tools)
         question = self._extract_question(text, from_task)
 
-        # If this agent already called a tool, return its observation
-        # rather than repeatedly issuing the same tool call.
+        # After a native tool call, return its observation to CrewAI.
         if self._has_tool_result(messages):
             observation = self._last_tool_result(messages)
 
@@ -211,12 +223,9 @@ class MockSupportLLM(BaseLLM):
                     f"Verified tool result: {observation}"
                 )
 
-            return (
-                "Verified local tool result received: "
-                f"{observation}"
-            )
+            return f"Verified local tool result received: {observation}"
 
-        # Retrieval agent: invoke the policy search tool.
+        # Retrieval agent: call the registered policy-search tool.
         search_name = tool_names.get("search_support_policies")
 
         if search_name and (
@@ -228,7 +237,7 @@ class MockSupportLLM(BaseLLM):
                 {"question": question},
             )
 
-        # Lookup agent: invoke ticket lookup only when an ID is present.
+        # Lookup agent: call the ticket tool only when an ID is present.
         lookup_name = tool_names.get("check_support_ticket_status")
 
         if lookup_name and (
@@ -247,9 +256,12 @@ class MockSupportLLM(BaseLLM):
                     {"record_id": ticket_match.group(0).upper()},
                 )
 
-            return "No ticket ID was supplied, so no ticket lookup was performed."
+            return (
+                "No ticket ID was supplied, so no ticket lookup "
+                "was performed."
+            )
 
-        # Composer agent: produce a local response based on prior evidence.
+        # Composer: extract and use the verified lookup result.
         if "composer" in role:
             ticket_match = re.search(
                 r"\bOLA-\d{4,}\b",
@@ -258,20 +270,68 @@ class MockSupportLLM(BaseLLM):
             )
 
             if ticket_match:
-                return (
-                    "The question concerns ticket "
-                    f"{ticket_match.group(0).upper()}. "
-                    "Use the verified ticket lookup result in the preceding "
-                    "task context; do not invent missing ticket details."
+                ticket = self._extract_json_after_label(
+                    text,
+                    "Verified tool result",
                 )
 
-            return (
-                "Use the policy evidence and source documents returned by "
-                "the retrieval task. Summarize only verified evidence and "
-                "state when the evidence is insufficient."
+                if ticket is None:
+                    ticket = self._extract_json_after_label(
+                        text,
+                        "Local ticket lookup completed. "
+                        "Verified tool result",
+                    )
+
+                # Only compose ticket details from verified lookup data.
+                if ticket and ticket.get("found") is True:
+                    required_fields = (
+                        "record_id",
+                        "status",
+                        "category",
+                        "resolution_time_hours",
+                        "escalation_score",
+                    )
+
+                    if all(key in ticket for key in required_fields):
+                        return (
+                            f"Ticket {ticket['record_id']} is currently "
+                            f"{ticket['status']}. "
+                            f"Category: {ticket['category']}. "
+                            f"Resolution time: "
+                            f"{ticket['resolution_time_hours']} hours. "
+                            f"Escalation score: "
+                            f"{ticket['escalation_score']}."
+                        )
+
+                if ticket and ticket.get("found") is False:
+                    return "Ticket not found. Please check the ticket ID."
+
+                return (
+                    f"I couldn't verify the details for "
+                    f"{ticket_match.group(0).upper()}. "
+                    "Please check the ticket lookup result."
+                )
+
+            # For policy questions, use the retrieval result and cite sources.
+            policy = self._extract_json_after_label(
+                text,
+                "Verified tool result",
             )
 
-        # General deterministic response when no tool is applicable.
+            if policy and not policy.get("fallback", False):
+                answer = policy.get("answer", "")
+                sources = policy.get("sources", [])
+
+                if answer:
+                    response = answer
+                    if sources:
+                        response += "\nSources: " + ", ".join(sources)
+                    return response
+
+            return (
+                "I don't know based on the available support policies."
+            )
+
         return (
             "MOCK_LLM: no external model was called. "
             "No applicable local tool was selected for this task."
