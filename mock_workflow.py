@@ -1,8 +1,9 @@
+"""Ola support workflow with memory, guardrails, caching, and input limits."""
 
-"""Ola support workflow with memory, validation, and input guardrails."""
-
+import copy
 import json
 import re
+import time
 from typing import Any
 
 from crew_support import search_support_policies, ticket_status_tool
@@ -10,7 +11,58 @@ from response_models import validate_support_response
 from session_memory import SessionMemory
 from guardrails import check_input
 
+
+# Runtime governance limits.
+MAX_INPUT_TOKENS = 400
+CACHE_TTL_SECONDS = 60
+
 session_memory = SessionMemory(max_turns=10)
+
+# In-memory cache: (session ID, normalized question) -> response and timestamp.
+response_cache = {}
+
+
+def estimate_tokens(text: str) -> int:
+    """Estimate input tokens without an external tokenizer or network call."""
+    return (len(text) + 3) // 4
+
+
+def normalize_question(question: str) -> str:
+    """Normalize whitespace and capitalization for cache matching."""
+    return " ".join(question.lower().split())
+
+
+def is_cacheable(question: str) -> bool:
+    """Cache only self-contained ticket or policy questions."""
+
+    if re.search(r"\bOLA-\d{4}\b", question, re.IGNORECASE):
+        return True
+
+    follow_up_phrases = (
+        "it",
+        "its",
+        "that ticket",
+        "same ticket",
+        "escalation score",
+        "resolution time",
+        "ticket status",
+        "status of it",
+    )
+
+    lower_question = question.lower()
+
+    # Do not cache context-dependent follow-up questions.
+    if any(phrase in lower_question for phrase in follow_up_phrases):
+        return False
+
+    policy_keywords = (
+        "policy", "priorit", "severity", "sla", "response time",
+        "refund", "business hours", "outage", "communication",
+        "retention", "vip", "service credit", "feedback",
+        "complaint", "support channel",
+    )
+
+    return any(word in lower_question for word in policy_keywords)
 
 
 def make_response(
@@ -21,7 +73,7 @@ def make_response(
     sources: list[str] | None = None,
     ticket: dict[str, Any] | None = None,
 ) -> dict:
-    """Create a response and validate it with Pydantic."""
+    """Create and validate a structured support response."""
 
     data = {
         "answer": answer,
@@ -34,6 +86,7 @@ def make_response(
 
     result = validate_support_response(data).model_dump()
     result["question"] = question
+    result["cache_hit"] = False
     return result
 
 
@@ -41,20 +94,20 @@ def run_support_workflow(
     question: str,
     session_id: str = "default",
 ) -> dict:
-    """Check inputs, then use ticket lookup or policy retrieval."""
+    """Apply guardrails and input limits, then retrieve or reuse a response."""
 
     question = question.strip()
 
     if not question:
         return make_response(
             "Please enter a support question.",
-            question=question,
+            question="",
+            fallback=True,
         )
 
-    # Check the original input before sending it to tools.
+    # Guardrails run before caching or tool invocation.
     guardrail = check_input(question)
 
-    # Block detected injection attempts.
     if guardrail.blocked:
         return make_response(
             answer=(
@@ -65,8 +118,51 @@ def run_support_workflow(
             fallback=True,
         )
 
-    # Use masked text for all subsequent processing.
+    # Use masked text throughout the rest of the workflow.
     question = guardrail.masked_text
+
+    # Reject oversized inputs before calling any support tools.
+    estimated_tokens = estimate_tokens(question)
+
+    if estimated_tokens > MAX_INPUT_TOKENS:
+        return make_response(
+            answer=(
+                f"Your request exceeds the input limit of approximately "
+                f"{MAX_INPUT_TOKENS} tokens. Please shorten your question."
+            ),
+            question="[INPUT REJECTED: input limit exceeded]",
+            fallback=True,
+        )
+
+    normalized = normalize_question(question)
+    cache_key = (session_id, normalized)
+    now = time.monotonic()
+
+    # Cache only self-contained questions to avoid reusing stale context
+    # for follow-up questions that depend on conversation history.
+    if is_cacheable(question):
+        cached = response_cache.get(cache_key)
+
+        if cached:
+            age = now - cached["created_at"]
+
+            if age <= CACHE_TTL_SECONDS:
+                response = copy.deepcopy(cached["response"])
+                response["cache_hit"] = True
+
+                # No tools ran for this request; the result came from cache.
+                response["tools_used"] = []
+
+                session_memory.add_turn(
+                    session_id,
+                    question,
+                    response["answer"],
+                )
+
+                return response
+
+            del response_cache[cache_key]
+
     history = session_memory.get_history(session_id)
 
     tools_used = []
@@ -92,12 +188,15 @@ def run_support_workflow(
             "status of it",
         )
 
-        if any(p in question.lower() for p in follow_up_phrases):
+        if any(phrase in question.lower() for phrase in follow_up_phrases):
             for turn in reversed(history):
                 previous_text = turn["user"] + " " + turn["assistant"]
                 previous_match = re.search(
-                    r"\bOLA-\d{4}\b", previous_text, re.IGNORECASE
+                    r"\bOLA-\d{4}\b",
+                    previous_text,
+                    re.IGNORECASE,
                 )
+
                 if previous_match:
                     ticket_id = previous_match.group(0).upper()
                     remembered_ticket = True
@@ -113,14 +212,19 @@ def run_support_workflow(
         if not ticket_result.get("found"):
             response = make_response(
                 answer=ticket_result.get(
-                    "message", f"Ticket {ticket_id} was not found."
+                    "message",
+                    f"Ticket {ticket_id} was not found.",
                 ),
                 question=question,
                 tools_used=tools_used,
             )
+
             session_memory.add_turn(
-                session_id, question, response["answer"]
+                session_id,
+                question,
+                response["answer"],
             )
+
             return response
 
         ticket_details = {
@@ -139,11 +243,12 @@ def run_support_workflow(
         "retention", "vip", "service credit", "feedback",
         "complaint", "support channel",
     )
+
     asks_policy = any(
         word in question.lower() for word in policy_keywords
     )
 
-    # Don't run RAG for a remembered-ticket follow-up.
+    # Avoid unnecessary RAG calls for ticket follow-up questions.
     if asks_policy and not remembered_ticket:
         policy_result = json.loads(
             search_support_policies.run(question=question)
@@ -154,14 +259,20 @@ def run_support_workflow(
 
         if fallback:
             response = make_response(
-                answer="I don't know based on the available support policies.",
+                answer=(
+                    "I don't know based on the available support policies."
+                ),
                 question=question,
                 tools_used=tools_used,
                 fallback=True,
             )
+
             session_memory.add_turn(
-                session_id, question, response["answer"]
+                session_id,
+                question,
+                response["answer"],
             )
+
             return response
 
     if ticket_details:
@@ -172,16 +283,19 @@ def run_support_workflow(
                 f"Ticket {ticket_id} has an escalation score of "
                 f"{ticket_details['escalation_score']}."
             )
+
         elif "resolution time" in lower_question:
             answer = (
                 f"Ticket {ticket_id} has a recorded resolution time of "
                 f"{ticket_details['resolution_time_hours']} hours."
             )
+
         elif "status" in lower_question or "state" in lower_question:
             answer = (
                 f"Ticket {ticket_id} is currently "
                 f"{ticket_details['status']}."
             )
+
         else:
             answer = (
                 f"Ticket {ticket_id} is currently "
@@ -213,8 +327,18 @@ def run_support_workflow(
     )
 
     session_memory.add_turn(
-        session_id, question, response["answer"]
+        session_id,
+        question,
+        response["answer"],
     )
+
+    # Cache eligible responses for a short, bounded period.
+    if is_cacheable(question):
+        response_cache[cache_key] = {
+            "created_at": time.monotonic(),
+            "response": copy.deepcopy(response),
+        }
+
     return response
 
 
@@ -231,10 +355,22 @@ if __name__ == "__main__":
 
         if question.strip().lower() == "reset":
             session_memory.clear_session(current_session)
-            print("Session memory cleared.")
+
+            # Reset this session's cached responses too.
+            keys_to_remove = [
+                key for key in response_cache
+                if key[0] == current_session
+            ]
+
+            for key in keys_to_remove:
+                del response_cache[key]
+
+            print("Session memory and cache cleared.")
             continue
 
         result = run_support_workflow(
-            question, session_id=current_session
+            question,
+            session_id=current_session,
         )
+
         print(json.dumps(result, indent=2, ensure_ascii=False))
