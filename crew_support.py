@@ -26,6 +26,7 @@ def get_rag_components():
 
     if _rag_components is None:
         from rag import initialize_support_rag
+
         _rag_components = initialize_support_rag()
 
     return _rag_components
@@ -57,7 +58,9 @@ def build_support_crew():
     retrieval_agent = Agent(
         role="Support Policy Retrieval Specialist",
         goal="Retrieve policy evidence using the policy search tool.",
-        backstory="You rely on retrieved policy evidence and never invent policies.",
+        backstory=(
+            "You rely on retrieved policy evidence and never invent policies."
+        ),
         llm=MockSupportLLM(),
         tools=[search_support_policies],
         verbose=False,
@@ -77,7 +80,9 @@ def build_support_crew():
     composer_agent = Agent(
         role="Support Response Composer",
         goal="Compose a concise answer from verified task results.",
-        backstory="You must not invent information absent from tool results.",
+        backstory=(
+            "You must not invent information absent from tool results."
+        ),
         llm=MockSupportLLM(),
         verbose=False,
         allow_delegation=False,
@@ -88,7 +93,9 @@ def build_support_crew():
             "Retrieve policy evidence for this question: {question}. "
             "Use the search_support_policies tool and report its exact result."
         ),
-        expected_output="Policy evidence and source filenames from the retrieval tool.",
+        expected_output=(
+            "Policy evidence and source filenames from the retrieval tool."
+        ),
         agent=retrieval_agent,
     )
 
@@ -110,7 +117,9 @@ def build_support_crew():
             "and escalation score. For policy questions, summarize retrieved "
             "evidence and cite source filenames. Do not invent details."
         ),
-        expected_output="A concise answer grounded in the preceding task outputs.",
+        expected_output=(
+            "A concise answer grounded in the preceding task outputs."
+        ),
         agent=composer_agent,
         context=[retrieval_task, lookup_task],
     )
@@ -132,7 +141,9 @@ def run_local_tools(question: str) -> dict:
     """
     TOOL_EXECUTION_LOG.clear()
 
-    ticket_match = re.search(r"\bOLA-\d{4,}\b", question, re.IGNORECASE)
+    ticket_match = re.search(
+        r"\bOLA-\d{4,}\b", question, re.IGNORECASE
+    )
     ticket_result = None
     policy_result = None
 
@@ -174,23 +185,33 @@ def run_local_tools(question: str) -> dict:
 
 
 if __name__ == "__main__":
+    TOOL_EXECUTION_LOG.clear()
     crew = build_support_crew()
 
     print("Three-agent crew constructed successfully.")
     print("Agents:", len(crew.agents))
     print("Tasks:", len(crew.tasks))
-    print("Configured tools:", [
-        search_support_policies.name,
-        ticket_status_tool.name,
-    ])
+    print(
+        "Configured tools:",
+        [
+            search_support_policies.name,
+            ticket_status_tool.name,
+        ],
+    )
 
     question = "What is the status of ticket OLA-0001?"
+
     print("\nRunning CrewAI kickoff...")
     try:
         result = crew.kickoff(inputs={"question": question})
+        print("CrewAI answer:")
         print(result)
+        print("CrewAI tool execution log:", TOOL_EXECUTION_LOG)
     except Exception as exc:
         print(f"CrewAI kickoff failed: {type(exc).__name__}: {exc}")
 
     print("\nRunning explicit offline tool verification...")
-    print(json.dumps(run_local_tools(question), indent=2, ensure_ascii=False))
+    offline_result = run_local_tools(question)
+    print(
+        json.dumps(offline_result, indent=2, ensure_ascii=False)
+    )

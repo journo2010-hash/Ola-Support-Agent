@@ -1,24 +1,26 @@
+
 # Ola Domain Support Agent — CrewAI
 
-A capstone project demonstrating an AI-assisted customer-support workflow using a synthetic ticket dataset, a Markdown knowledge base, retrieval-augmented generation (RAG), CrewAI agents, session memory, guardrails, a FastAPI interface, and an AutoGen review workflow.
+A capstone project demonstrating an AI-assisted customer-support workflow using a synthetic ticket dataset, a Markdown knowledge base, retrieval-augmented generation (RAG), CrewAI agents, session memory, guardrails, governance controls, a FastAPI interface, and an AutoGen review workflow.
 
 > **Important:** The knowledge-base policies and ticket records are illustrative test data. They are not official Ola policies or real customer records.
 
 ## Features
 
 - **Synthetic dataset:** Reproducible support tickets across five categories and five statuses.
-- **Knowledge base:** 12 Markdown policy documents covering ticket priority, SLAs, escalation, refunds, communication channels, business hours, repeat complaints, service credits, feedback, VIP handling, outages, and data retention.
+- **Knowledge base:** 12 Markdown policy documents covering priority, SLAs, escalation, refunds, communication channels, business hours, repeat complaints, service credits, feedback, VIP handling, outages, and data retention.
 - **RAG:** Fixed-overlap and sentence-based chunking, local SentenceTransformer embeddings, ChromaDB collections, and hybrid semantic/lexical retrieval.
-- **Out-of-scope handling:** Empirically calibrated similarity thresholds and a fallback when the available support policies do not provide sufficient evidence.
-- **CrewAI:** Retrieval, ticket lookup, and response-composition agents.
+- **Out-of-scope handling:** Similarity threshold calibration and a fallback when the knowledge base does not provide sufficient evidence.
+- **CrewAI:** Three agents and three sequential tasks for policy retrieval, ticket lookup, and response composition.
 - **Ticket lookup:** Synthetic ticket status, resolution time, and escalation scoring.
 - **Session memory:** Multi-turn conversation history and session reset.
 - **Guardrails:** Phone-number masking, prompt-injection detection, and input-length limits.
+- **Governance:** Rule-based risk classification, autonomy decisions, and human-review requirements for sensitive requests.
 - **Response cache:** In-memory response caching with a time-to-live and normalized query keys.
-- **Structured logging:** JSONL request logs with trace IDs and timing information, designed to avoid logging raw question text or phone numbers.
+- **Structured logging:** JSONL request logs designed to avoid recording raw question text or unmasked phone numbers.
 - **FastAPI:** HTTP endpoints and WebSocket support.
-- **Evaluation:** A 15-query support evaluation and CSV output, plus a separate RAG chunking comparison.
-- **AutoGen review:** Two-agent review with structured Pydantic verdicts.
+- **Evaluation:** A 15-case support evaluation and CSV output, plus a separate RAG chunking comparison.
+- **AutoGen review:** Two-agent review demonstration with structured Pydantic verdicts.
 
 ## Project files
 
@@ -27,34 +29,37 @@ A capstone project demonstrating an AI-assisted customer-support workflow using 
 | `dataset.py` | Generates and validates synthetic support tickets |
 | `rag.py` | Knowledge-base loading, chunking, embeddings, retrieval, and threshold calibration |
 | `rag_tfidf.py` | Alternative TF-IDF retrieval implementation |
-| `ticket_lookup.py` | Looks up ticket status and calculates escalation scores |
-| `crew_support.py` | CrewAI agent and task definitions |
+| `ticket_lookup.py` | Ticket status lookup and escalation scoring |
+| `crew_support.py` | CrewAI agents, tasks, and tools |
 | `mock_llm.py` | Deterministic mock language model for local testing |
-| `mock_workflow.py` | Local support workflow, memory, guardrails, and caching |
+| `mock_workflow.py` | Support workflow, memory, guardrails, caching, and governance integration |
 | `session_memory.py` | Session conversation history |
 | `guardrails.py` | Input validation, prompt-injection detection, and phone masking |
+| `governance.py` | Rule-based risk classification and autonomy decisions |
 | `response_models.py` | Structured response validation |
+| `support_agents.py` | Support-agent definitions |
 | `api.py` | FastAPI application, HTTP endpoints, WebSocket, and JSONL logging |
-| `evaluate_support.py` | Runs the 15-query support evaluation |
-| `evaluation_results.csv` | Saved support evaluation results |
-| `autogen_review.py` | AutoGen approval/revision demonstration |
+| `evaluate_support.py` | Runs the 15-case support evaluation |
+| `evaluation_results.csv` | Generated support evaluation results |
+| `autogen_review.py` | AutoGen review demonstration |
 | `test_guardrails.py` | Guardrail regression tests |
+| `test_governance.py` | Governance unit tests |
 | `test_websocket.py` | WebSocket request and disconnection test |
 | `knowledge_base/` | Markdown support policy documents |
-| `requirements.txt` | Python dependency versions |
+| `requirements.txt` | Python dependencies |
 
 ## Requirements
 
 - Python 3.11
 - Git
 - A virtual environment
-- The dependencies listed in `requirements.txt`
+- Dependencies listed in `requirements.txt`
 
 The project uses CrewAI, ChromaDB, SentenceTransformers, LangChain, FastAPI, Pydantic, AutoGen, and related packages.
 
 ## Installation on Windows
 
-Clone the repository and enter its directory:
+Clone the repository and enter the project directory:
 
 ```powershell
 git clone https://github.com/journo2010-hash/Ola-Support-Agent.git
@@ -74,13 +79,13 @@ Install dependencies:
 python -m pip install -r requirements.txt
 ```
 
-Check for dependency conflicts:
+Check dependency consistency:
 
 ```powershell
 python -m pip check
 ```
 
-The commands above describe a fresh installation. If you already have the project and its `.venv` environment, you can continue using that environment.
+These commands describe a fresh installation. If the project and its virtual environment already exist, continue using that environment.
 
 ## Dataset design and reproducibility
 
@@ -91,7 +96,7 @@ The default dataset contains 50 synthetic support tickets. The generator uses Py
 - **Statuses:** Open, In Progress, Escalated, Resolved, and Closed.
 - **Escalation weights:** 20% escalated and 80% non-escalated during generation.
 - **Escalation acceptance range:** 10–30% of tickets.
-- **Ticket age:** 0–30 days since creation.
+- **Ticket age:** 0–30 days.
 - **Resolution time:** 0.5–120 hours.
 - **Record identifiers:** Generated IDs such as `OLA-0001`.
 - **Consistency rule:** The `Escalated` status must agree with the Boolean `escalated` field.
@@ -138,12 +143,17 @@ These documents provide the context for support-policy questions. Answers should
 
 The RAG implementation compares two document chunking strategies:
 
-- **Fixed-overlap chunking:** Divides documents into chunks with overlapping text.
+- **Fixed-overlap chunking:** Divides documents into overlapping text chunks, using 80-word chunks and 15-word overlap by default.
 - **Sentence-based chunking:** Splits documents into sentence-oriented chunks.
 
-Both approaches use local SentenceTransformer embeddings and separate ChromaDB collections. The implementation uses `collection.upsert()` to index the generated chunks.
+Both approaches use local SentenceTransformer embeddings and separate ChromaDB collections. The implementation uses `collection.upsert()` to index generated chunks.
 
-Hybrid retrieval combines semantic similarity with lexical overlap. A similarity threshold is calibrated using in-scope and out-of-scope examples, and the system returns an uncertainty fallback when the query does not have sufficient support.
+Hybrid retrieval combines:
+
+- 75% semantic similarity.
+- 25% lexical keyword overlap.
+
+A similarity threshold is calibrated using in-scope and out-of-scope examples. The system returns an uncertainty fallback when the retrieved evidence does not meet the configured threshold.
 
 Run the RAG demonstration:
 
@@ -153,18 +163,18 @@ python rag.py
 
 ### Preliminary chunking comparison
 
-The latest five-query document-level evaluation produced the following results:
+The current five-query document-level evaluation produced the following results:
 
 | Metric | Fixed-overlap | Sentence-based |
 |---|---:|---:|
 | Mean document-level precision | 1.000 | 1.000 |
 | Mean document-level recall | 1.000 | 1.000 |
 
-On this small evaluation set, both approaches retrieved the expected document for all five queries. The two strategies therefore tie on the reported metrics; these results do not establish that either approach is universally better.
+Both strategies retrieved the expected document for all five tested queries. They tie on the current metrics; these results do not establish that either strategy is universally better.
 
-The threshold calibration also tested five in-scope queries and two out-of-scope questions. The selected thresholds separated the tested in-scope and out-of-scope similarity scores.
+The threshold calibration tested five in-scope queries and two out-of-scope questions. The selected thresholds separated the observed scores in this small sample.
 
-Two tested out-of-scope questions, about sourdough bread and the capital of Japan, triggered the fallback:
+The two tested out-of-scope questions, about sourdough bread and the capital of Japan, triggered the fallback:
 
 > I don't know based on the available support policies.
 
@@ -174,15 +184,30 @@ These results are preliminary. A larger and more varied query set is needed to a
 
 The CrewAI workflow defines three agents:
 
-- **Retrieval Agent:** Searches the support knowledge base using the RAG tool.
-- **Lookup Agent:** Checks synthetic ticket details using the ticket-status tool.
-- **Composer Agent:** Produces a final support response from the available information.
+- **Support Policy Retrieval Specialist:** Retrieves policy evidence using the RAG tool.
+- **Support Ticket Lookup Specialist:** Looks up synthetic ticket information using the ticket-status tool.
+- **Support Response Composer:** Composes a response using preceding task outputs.
 
-The workflow uses CrewAI tasks and a sequential process. The local mock language model supports deterministic testing without requiring a live language-model API for the demonstrated workflow.
+The workflow uses three sequential tasks. The composer task receives the retrieval and lookup task outputs as context.
 
-A successful local workflow test executed both the policy retrieval and ticket lookup tools. For ticket `OLA-0001`, the sample result reported status `Open`, category `Billing`, resolution time `91.62` hours, and escalation score `0.173`.
+The local mock language model supports deterministic testing without requiring a live language-model API for the demonstrated workflow.
 
-The ticket details are synthetic and are included only to demonstrate tool integration.
+A successful local kickoff test recorded calls to both `search_support_policies` and `check_support_ticket_status`. For ticket `OLA-0001`, the sample result reported:
+
+- Status: `Open`
+- Category: `Billing`
+- Resolution time: `91.62` hours
+- Escalation score: `0.173`
+
+Ticket details are synthetic and are included only to demonstrate tool integration.
+
+Run the CrewAI demonstration:
+
+```powershell
+python crew_support.py
+```
+
+The script displays the CrewAI result, the recorded tool-execution log, and a separate deterministic offline tool-verification result.
 
 ## Ticket lookup and escalation scoring
 
@@ -217,7 +242,7 @@ The guardrail implementation demonstrates:
 - Detecting prompt-injection attempts.
 - Rejecting or limiting oversized inputs.
 - Returning safe refusals for blocked requests.
-- Avoiding calls to support tools for rejected prompt-injection inputs.
+- Avoiding support-tool calls for rejected prompt-injection inputs.
 
 Run the guardrail regression tests:
 
@@ -225,16 +250,39 @@ Run the guardrail regression tests:
 python test_guardrails.py
 ```
 
-The latest recorded guardrail regression test passed all four checks.
+The latest recorded run passed all four checks.
 
 Phone masking and prompt-injection detection are safeguards, not guarantees against every unsafe input. Do not use real customer data in the demonstration.
+
+## Governance controls
+
+The `governance.py` module classifies requests by risk and assigns an autonomy level. It distinguishes read-only support requests from sensitive actions that require human review and requests that must be blocked.
+
+The implemented test cases cover:
+
+- Low-risk support-policy questions.
+- Read-only ticket lookups.
+- Sensitive actions, including refund requests and account changes.
+- Prompt-injection attempts.
+- Empty or invalid requests.
+- Serialization of governance decisions.
+
+Run the governance unit tests:
+
+```powershell
+python -m unittest test_governance.py -v
+```
+
+The latest recorded run passed all nine governance unit tests.
+
+**Limitations:** The governance implementation uses rule-based classification. Flagging a request for human review does not implement an actual human approval workflow. The rules do not guarantee detection of every unsafe request.
 
 ## FastAPI and WebSocket interface
 
 Start the development server:
 
 ```powershell
-python -m uvicorn api:app --reload
+python -m uvicorn api:app --host 127.0.0.1 --port 8000
 ```
 
 Open the interactive API documentation:
@@ -248,7 +296,7 @@ The application includes:
 - `POST /add-document` — adds a document through the API.
 - `WS /ws` — provides a WebSocket support interaction.
 
-The WebSocket implementation handles normal client disconnection using `WebSocketDisconnect`.
+The WebSocket implementation handles normal client disconnection using `WebSocketDisconnect` and offloads workflow execution to avoid blocking the asynchronous connection.
 
 ### WebSocket test
 
@@ -258,7 +306,7 @@ Keep the API server running in one terminal. Open a second PowerShell terminal i
 python test_websocket.py
 ```
 
-The recorded test completed successfully and confirmed clean client disconnection.
+The recorded test passed and returned a policy response with governance metadata. It also confirmed clean client disconnection.
 
 Stop the API server with `Ctrl + C`.
 
@@ -266,7 +314,7 @@ Stop the API server with `Ctrl + C`.
 
 The API writes structured JSONL request logs containing trace identifiers, timing, endpoint information, outcomes, and status codes.
 
-The implementation is designed not to record raw question text, session identifiers, or unmasked phone numbers. Review generated logs before sharing or committing them.
+The implementation is designed not to record raw question text or unmasked phone numbers. Review generated logs before sharing or committing them.
 
 The local response cache uses normalized query keys and a time-to-live. It demonstrates repeated-query caching but is not a distributed or persistent cache.
 
@@ -284,7 +332,7 @@ The script writes results to:
 evaluation_results.csv
 ```
 
-The 15-query evaluation includes:
+The 15-case evaluation includes:
 
 - One representative query for each of the 12 knowledge-base topics.
 - An out-of-scope question about sourdough bread.
@@ -293,7 +341,9 @@ The 15-query evaluation includes:
 
 The evaluation reports accuracy, grounding, completeness, and safety scores per query and averages.
 
-The latest recorded run returned an average score of `1.000` for all four dimensions. These scores are based on rule-based heuristic checks, not independent human review or model-independent measurements. They should not be interpreted as proof of perfect answer quality.
+The latest recorded run returned an average score of `1.000` for all four dimensions, and all 15 cases scored `1.0` on each of the four heuristics.
+
+**Interpretation limitation:** These scores are based on rule-based heuristic checks, not independent human review or model-independent measurements. They should not be interpreted as proof of perfect answer quality.
 
 Review the CSV, retrieved documents, final responses, and edge cases before presenting the results.
 
@@ -324,23 +374,29 @@ Check installed dependency consistency:
 python -m pip check
 ```
 
-The latest recorded run returned:
+The previously recorded run returned:
 
 ```text
 No broken requirements found.
 ```
 
-Run the relevant tests individually:
+Run the main checks individually:
 
 ```powershell
 python dataset.py
+python -m unittest test_governance.py -v
 python test_guardrails.py
-python evaluate_support.py
 python rag.py
+python evaluate_support.py
+python crew_support.py
 python autogen_review.py
 ```
 
-The WebSocket test requires the API server to be running in a separate terminal.
+The WebSocket test requires the API server to be running in a separate terminal:
+
+```powershell
+python test_websocket.py
+```
 
 ## Safety, governance, and deployment limitations
 
@@ -350,7 +406,7 @@ This repository is a local capstone demonstration.
 - Do not commit API keys, access tokens, phone numbers, or other secrets.
 - Review `.gitignore` before committing generated logs, virtual environments, or sensitive files.
 - Apply input-length and per-request resource limits.
-- Treat retrieved policy documents as the evidence for support-policy answers.
+- Treat retrieved policy documents as evidence for support-policy answers.
 - Use safe fallbacks when the available knowledge base does not support an answer.
 - Apply authentication, authorization, rate limits, secure storage, retention controls, and a security review before any real deployment.
 - Evaluate the system using a larger, diverse query set before making reliability claims.
