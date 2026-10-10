@@ -1,4 +1,3 @@
-
 """Mock support workflow for the Ola Domain Support Agent capstone."""
 
 import re
@@ -8,6 +7,7 @@ from typing import Any, Optional
 from pydantic import BaseModel, Field
 
 from guardrails import check_input
+from governance import classify_request
 from session_memory import SessionMemory
 from ticket_lookup import check_support_ticket_status
 
@@ -35,6 +35,7 @@ class WorkflowResponse(BaseModel):
     tools_used: list[str] = Field(default_factory=list)
     ticket: Optional[dict[str, Any]] = None
     question: str
+    governance: Optional[dict[str, Any]] = None
 
 
 def estimate_tokens(text: str) -> int:
@@ -106,6 +107,7 @@ def _make_response(
     sources: Optional[list[str]] = None,
     tools_used: Optional[list[str]] = None,
     ticket: Optional[dict[str, Any]] = None,
+    governance: Optional[dict[str, Any]] = None,
 ) -> dict[str, Any]:
     """Validate and serialize a consistent API response."""
     result = WorkflowResponse(
@@ -116,6 +118,7 @@ def _make_response(
         tools_used=tools_used or [],
         ticket=ticket,
         question=question,
+        governance=governance,
     )
     return result.model_dump()
 
@@ -287,6 +290,7 @@ def run_support_workflow(
             question="",
             answer="Please enter a support question.",
             fallback=True,
+            governance=classify_request(" ").to_dict(),
         )
 
     # Reject oversized requests before invoking downstream components.
@@ -298,6 +302,13 @@ def run_support_workflow(
                 "Please shorten it and try again."
             ),
             fallback=True,
+            governance={
+                "risk_level": "high",
+                "autonomy_level": "blocked",
+                "allowed": False,
+                "requires_human_review": False,
+                "reason": "The request exceeded the configured input-size limit.",
+            },
         )
 
     # Guardrails mask phone numbers and detect prompt injection.
@@ -312,6 +323,7 @@ def run_support_workflow(
                 "Please try again."
             ),
             fallback=True,
+            governance=classify_request(original_question, guardrail_blocked=True).to_dict(),
         )
 
     if blocked:
@@ -322,7 +334,24 @@ def run_support_workflow(
                 "with the support agent's safety rules."
             ),
             fallback=True,
+            governance=classify_request(safe_question, guardrail_blocked=True).to_dict(),
         )
+
+    # Classify the request before cache lookup or any tool execution.
+    governance_decision = classify_request(safe_question)
+    governance = governance_decision.to_dict()
+
+    if not governance_decision.allowed:
+        response = _make_response(
+            question=safe_question,
+            answer=(
+                "This request requires human review and cannot be executed "
+                "autonomously by the support agent."
+            ),
+            fallback=True,
+            governance=governance,
+        )
+        return response
 
     # Never cache unsafe or oversized inputs. Cache only after guardrails.
     key = _cache_key(safe_question, session_id)
@@ -333,7 +362,17 @@ def run_support_workflow(
 
     # Explicit ticket IDs must always go through the ticket lookup tool.
     if is_ticket_lookup_question(safe_question):
-        ticket_result = check_support_ticket_status(safe_question)
+        ticket_match = re.search(
+            r"\bOLA-\d{4,}\b",
+            safe_question,
+            re.IGNORECASE,
+        )
+
+        if ticket_match is None:
+            ticket_result = {"found": False}
+        else:
+            ticket_id = ticket_match.group(0).upper()
+            ticket_result = check_support_ticket_status(ticket_id)
 
         if not ticket_result.get("found", False):
             # FIX: A missing ticket is a fallback, not a successful lookup.
@@ -345,6 +384,7 @@ def run_support_workflow(
                 fallback=True,
                 tools_used=["check_support_ticket_status"],
                 ticket=None,
+                governance=governance,
             )
         else:
             ticket = {
@@ -364,6 +404,7 @@ def run_support_workflow(
                 fallback=False,
                 tools_used=["check_support_ticket_status"],
                 ticket=ticket,
+                governance=governance,
             )
 
         # Save the ticket exchange for session history.
@@ -387,6 +428,7 @@ def run_support_workflow(
             question=safe_question,
             answer=answer,
             fallback=True,
+            governance=governance,
         )
 
         session_memory.add_turn(
@@ -411,6 +453,7 @@ def run_support_workflow(
             fallback=policy_result["fallback"],
             sources=policy_result["sources"],
             tools_used=["search_support_policies"],
+            governance=governance,
         )
 
     except Exception:
@@ -423,6 +466,7 @@ def run_support_workflow(
             ),
             fallback=True,
             tools_used=["search_support_policies"],
+            governance=governance,
         )
 
     session_memory.add_turn(
@@ -466,3 +510,4 @@ if __name__ == "__main__":
         print(f"Fallback: {result['fallback']}")
         print(f"Sources: {result['sources']}")
         print(f"Tools used: {result['tools_used']}")
+        print(f"Governance: {result.get('governance')}")

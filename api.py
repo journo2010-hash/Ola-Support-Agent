@@ -1,3 +1,4 @@
+
 """FastAPI interface for the Ola Support Agent with safe JSONL logging."""
 
 import json
@@ -10,6 +11,7 @@ from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel, Field
+from starlette.concurrency import run_in_threadpool
 
 from mock_workflow import run_support_workflow
 
@@ -32,7 +34,13 @@ class JsonlFormatter(logging.Formatter):
             "event": record.getMessage(),
         }
 
-        for key in ("trace_id", "endpoint", "duration_ms", "outcome", "status_code"):
+        for key in (
+            "trace_id",
+            "endpoint",
+            "duration_ms",
+            "outcome",
+            "status_code",
+        ):
             value = getattr(record, key, None)
             if value is not None:
                 event[key] = value
@@ -58,7 +66,9 @@ def log_request(trace_id, endpoint, started, outcome, status_code):
         extra={
             "trace_id": trace_id,
             "endpoint": endpoint,
-            "duration_ms": round((time.perf_counter() - started) * 1000, 2),
+            "duration_ms": round(
+                (time.perf_counter() - started) * 1000, 2
+            ),
             "outcome": outcome,
             "status_code": status_code,
         },
@@ -130,7 +140,9 @@ def add_document(request: AddDocumentRequest):
     ).strip("_")
 
     if not slug:
-        log_request(trace_id, "/add-document", started, "invalid_title", 400)
+        log_request(
+            trace_id, "/add-document", started, "invalid_title", 400
+        )
         raise HTTPException(
             status_code=400,
             detail="Please provide a valid document title.",
@@ -148,12 +160,16 @@ def add_document(request: AddDocumentRequest):
 
     try:
         file_path.write_text(
-            f"# {request.title.strip()}\n\n{request.content.strip()}\n",
+            f"# {request.title.strip()}\n\n"
+            f"{request.content.strip()}\n",
             encoding="utf-8",
         )
 
-        import crew_support
-        crew_support._rag_components = None
+        # Reset the workflow's cached RAG components so that a later
+        # policy search can reload the knowledge base.
+        import mock_workflow
+
+        mock_workflow._rag_components = None
 
         log_request(trace_id, "/add-document", started, "success", 200)
 
@@ -185,7 +201,11 @@ async def support_websocket(websocket: WebSocket):
 
             try:
                 request = AskRequest.model_validate(data)
-                result = run_support_workflow(
+
+                # Run synchronous RAG/ticket processing in a worker thread.
+                # This allows the async WebSocket event loop to keep running.
+                result = await run_in_threadpool(
+                    run_support_workflow,
                     request.question,
                     session_id=request.session_id,
                 )
@@ -193,12 +213,19 @@ async def support_websocket(websocket: WebSocket):
                 log_request(trace_id, "/ws", started, "success", 200)
                 await websocket.send_json(result)
 
+            except WebSocketDisconnect:
+                raise
+
             except Exception:
                 log_request(trace_id, "/ws", started, "error", 400)
-                await websocket.send_json({
-                    "error": "The support request could not be processed.",
-                    "trace_id": trace_id,
-                })
+                await websocket.send_json(
+                    {
+                        "error": (
+                            "The support request could not be processed."
+                        ),
+                        "trace_id": trace_id,
+                    }
+                )
 
     except WebSocketDisconnect:
         logger.info("websocket_disconnected")
