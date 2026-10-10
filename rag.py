@@ -383,3 +383,16 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+def initialize_support_rag():
+    """Initialize the RAG system for reuse by the support agent."""
+    documents = load_documents()
+    model = SentenceTransformer(MODEL_NAME)
+    client = chromadb.Client()
+
+    sentence_collection = build_collection(
+        client, model, documents, "sentence"
+    )
+    threshold = calibrate_threshold(sentence_collection, model)
+
+    return sentence_collection, model, threshold
