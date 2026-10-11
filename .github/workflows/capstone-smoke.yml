@@ -31,5 +31,15 @@ jobs:
         run: python -m compileall -q .
       - name: Run offline regression tests
         run: |
-          python -m unittest -v             test_governance.py             test_workflow_controls.py             test_ticket_lookup.py             test_output_grounding.py             test_autogen_review.py
+          python -m unittest -v test_governance.py test_workflow_controls.py test_ticket_lookup.py test_output_grounding.py test_api_logging.py test_autogen_review.py
           python test_guardrails.py
+      - name: Generate deterministic text evidence
+        run: |
+          python autogen_review.py
+          python run_capstone_evidence.py
+      - name: Upload generated text evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: capstone-text-evidence
+          path: evidence/*.txt
+          if-no-files-found: error
