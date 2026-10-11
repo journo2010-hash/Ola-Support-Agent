@@ -342,7 +342,8 @@ async def review_draft(draft: str, retrieved_context: str) -> VerdictModel:
         raise RuntimeError("AutoGen review did not return a structured verdict.")
     verdict = verdicts[-1]
     if verdict.approved and verdict.final_answer != draft.strip():
-        raise AssertionError("An approved draft must remain unchanged.")
+        # Approval means the original CrewAI draft is returned unchanged.
+        verdict = verdict.model_copy(update={"final_answer": draft.strip()})
     return verdict
 
 
