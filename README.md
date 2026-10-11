@@ -40,6 +40,8 @@ A capstone project demonstrating an AI-assisted customer-support workflow using 
 | `run_capstone_evidence.py` | Reproducible cache, memory, and budget transcript |
 | `requirements-ci.txt` | Minimal offline test dependencies |
 | `.github/workflows/capstone-smoke.yml` | Deterministic smoke-test workflow |
+| `CAPSTONE_RUBRIC_CHECKLIST.md` | Rubric-to-implementation and evidence checklist |
+| `CAPSTONE_DEMO_GUIDE.md` | Five-minute demo script and evaluator Q&A |
 | `evidence/autogen_review_transcript.txt` | Actual CI output for unchanged approval and grounded revision |
 | `evidence/capstone_controls_transcript.txt` | Actual CI output for cache, session carryover/reset, and budget controls |
 | `crew_support.py` | CrewAI agents, tasks, and tools |
