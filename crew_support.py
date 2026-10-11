@@ -225,6 +225,10 @@ if __name__ == "__main__":
     print("Three-agent crew constructed successfully.")
     print("Agents:", len(crew.agents))
     print("Tasks:", len(crew.tasks))
+    print("Least-autonomy tool assignments:")
+    for agent in crew.agents:
+        assigned = [getattr(tool_item, "name", str(tool_item)) for tool_item in agent.tools]
+        print(f"  {agent.role}: {assigned or 'no tools'}")
     print(
         "Configured tools:",
         [search_support_policies.name, ticket_status_tool.name],
