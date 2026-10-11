@@ -1,0 +1,45 @@
+name: Capstone deterministic smoke tests
+
+on:
+  push:
+    branches:
+      - main
+      - capstone-completion-review
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  smoke-tests:
+    runs-on: ubuntu-latest
+    env:
+      MOCK_LLM: "1"
+      CREWAI_DISABLE_TELEMETRY: "true"
+      OTEL_SDK_DISABLED: "true"
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: requirements-ci.txt
+      - name: Install minimal deterministic test dependencies
+        run: python -m pip install -r requirements-ci.txt
+      - name: Compile Python files
+        run: python -m compileall -q .
+      - name: Run offline regression tests
+        run: |
+          python -m unittest -v test_governance.py test_workflow_controls.py test_ticket_lookup.py test_output_grounding.py test_api_logging.py test_autogen_review.py
+          python test_guardrails.py
+      - name: Generate deterministic text evidence
+        run: |
+          python autogen_review.py
+          python run_capstone_evidence.py
+      - name: Upload generated text evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: capstone-text-evidence
+          path: evidence/*.txt
+          if-no-files-found: error

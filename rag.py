@@ -10,9 +10,15 @@ Hybrid ranking:
     25% lexical keyword overlap
 """
 
+import os
 import re
 from pathlib import Path
 from statistics import median
+
+# Graded RAG runs must never attempt to download a model. The embedding
+# model must be present in the local Hugging Face cache before offline grading.
+os.environ["HF_HUB_OFFLINE"] = "1"
+os.environ["TRANSFORMERS_OFFLINE"] = "1"
 
 import chromadb
 from sentence_transformers import SentenceTransformer
@@ -671,8 +677,14 @@ def main():
         > sentence_precision + sentence_recall
     ):
         print(
-            "Preliminary recommendation: "
-            "fixed-overlap chunking."
+            f"Recommendation: fixed-overlap performed better on this sample "
+            f"(precision={fixed_precision:.3f}, recall={fixed_recall:.3f}) "
+            f"than sentence-based (precision={sentence_precision:.3f}, "
+            f"recall={sentence_recall:.3f})."
+        )
+        print(
+            f"This comparison covers only {len(EVALUATION_QUERIES)} in-scope "
+            "queries, so expand the evaluation before treating the result as general."
         )
 
     elif (
@@ -680,18 +692,35 @@ def main():
         > fixed_precision + fixed_recall
     ):
         print(
-            "Preliminary recommendation: "
-            "sentence-based chunking."
+            f"Recommendation: sentence-based performed better on this sample "
+            f"(precision={sentence_precision:.3f}, recall={sentence_recall:.3f}) "
+            f"than fixed-overlap (precision={fixed_precision:.3f}, "
+            f"recall={fixed_recall:.3f})."
+        )
+        print(
+            f"This comparison covers only {len(EVALUATION_QUERIES)} in-scope "
+            "queries, so expand the evaluation before treating the result as general."
         )
 
     else:
         print(
-            "The two strategies tie on the current test set."
+            f"Recommendation: the strategies tie across {len(EVALUATION_QUERIES)} "
+            f"in-scope queries (fixed-overlap precision={fixed_precision:.3f}, "
+            f"recall={fixed_recall:.3f}; sentence-based precision="
+            f"{sentence_precision:.3f}, recall={sentence_recall:.3f})."
+        )
+        print(
+            "Keep sentence-based chunking as the default for fine-grained source "
+            "units while retaining fixed-overlap as a comparator; this is an "
+            "implementation preference, not a measured accuracy advantage."
+        )
+        print(
+            "Broaden the query set before making a general performance claim."
         )
 
     print("\n=== Grounded-answer demonstration ===")
 
-    for item in EVALUATION_QUERIES[:3]:
+    for item in EVALUATION_QUERIES:
 
         result = grounded_answer(
             item["query"],

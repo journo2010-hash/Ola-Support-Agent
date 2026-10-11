@@ -13,11 +13,13 @@ from crewai import Agent, Crew, Process, Task
 from crewai.tools import tool
 
 from mock_llm import MockSupportLLM
+from response_models import SupportResponse, validate_support_response
 from ticket_lookup import check_support_ticket_status
 
 
 _rag_components = None
 TOOL_EXECUTION_LOG = []
+TOOL_RESULT_LOG: dict[str, dict] = {}
 
 
 def get_rag_components():
@@ -41,6 +43,7 @@ def search_support_policies(question: str) -> str:
     result = grounded_answer(question, collection, model, threshold)
 
     TOOL_EXECUTION_LOG.append("search_support_policies")
+    TOOL_RESULT_LOG["policy"] = result
     return json.dumps(result, ensure_ascii=False)
 
 
@@ -50,6 +53,7 @@ def ticket_status_tool(record_id: str) -> str:
     result = check_support_ticket_status(record_id)
 
     TOOL_EXECUTION_LOG.append("check_support_ticket_status")
+    TOOL_RESULT_LOG["ticket"] = result
     return json.dumps(result, ensure_ascii=False)
 
 
@@ -132,6 +136,36 @@ def build_support_crew():
     )
 
 
+def validate_crew_response(raw_result: Any) -> SupportResponse:
+    """Validate every final CrewAI kickoff result with the Pydantic schema."""
+    raw_answer = str(raw_result).strip() or (
+        "The support workflow did not return an answer."
+    )
+    policy_result = TOOL_RESULT_LOG.get("policy", {})
+    ticket_result = TOOL_RESULT_LOG.get("ticket", {})
+
+    ticket = None
+    if ticket_result.get("found"):
+        ticket = {
+            "record_id": ticket_result["record_id"],
+            "status": ticket_result["status"],
+            "category": ticket_result["category"],
+            "resolution_time_hours": ticket_result["resolution_time_hours"],
+            "escalation_score": ticket_result["escalation_score"],
+        }
+
+    sources = policy_result.get("sources", []) or []
+    fallback = bool(policy_result.get("fallback", False)) and ticket is None
+    return validate_support_response({
+        "answer": raw_answer,
+        "mode": "MOCK_LLM",
+        "fallback": fallback,
+        "sources": [str(source) for source in sources],
+        "tools_used": list(dict.fromkeys(TOOL_EXECUTION_LOG)),
+        "ticket": ticket,
+    })
+
+
 def run_local_tools(question: str) -> dict:
     """
     Deterministic offline execution of the same two tools.
@@ -140,6 +174,7 @@ def run_local_tools(question: str) -> dict:
     AgentExecutor invoked the tools during kickoff().
     """
     TOOL_EXECUTION_LOG.clear()
+    TOOL_RESULT_LOG.clear()
 
     ticket_match = re.search(
         r"\bOLA-\d{4,}\b", question, re.IGNORECASE
@@ -185,33 +220,50 @@ def run_local_tools(question: str) -> dict:
 
 
 if __name__ == "__main__":
-    TOOL_EXECUTION_LOG.clear()
     crew = build_support_crew()
 
     print("Three-agent crew constructed successfully.")
     print("Agents:", len(crew.agents))
     print("Tasks:", len(crew.tasks))
+    print("Least-autonomy tool assignments:")
+    for agent in crew.agents:
+        assigned = [getattr(tool_item, "name", str(tool_item)) for tool_item in agent.tools]
+        print(f"  {agent.role}: {assigned or 'no tools'}")
     print(
         "Configured tools:",
-        [
-            search_support_policies.name,
-            ticket_status_tool.name,
-        ],
+        [search_support_policies.name, ticket_status_tool.name],
     )
 
-    question = "What is the status of ticket OLA-0001?"
-
-    print("\nRunning CrewAI kickoff...")
-    try:
-        result = crew.kickoff(inputs={"question": question})
-        print("CrewAI answer:")
-        print(result)
-        print("CrewAI tool execution log:", TOOL_EXECUTION_LOG)
-    except Exception as exc:
-        print(f"CrewAI kickoff failed: {type(exc).__name__}: {exc}")
+    # Use separate kickoff queries to show policy retrieval and ticket lookup.
+    for question in (
+        "What is the ticket priority policy?",
+        "What is the status of ticket OLA-0001?",
+    ):
+        print(f"\nRunning CrewAI kickoff for: {question}")
+        TOOL_EXECUTION_LOG.clear()
+        TOOL_RESULT_LOG.clear()
+        try:
+            result = crew.kickoff(inputs={"question": question})
+            validated = validate_crew_response(result)
+            print("Pydantic-validated CrewAI response:")
+            print(validated.model_dump_json(indent=2))
+            print("CrewAI tool execution log:", TOOL_EXECUTION_LOG)
+            assert validated.mode == "MOCK_LLM"
+            if "policy" in question.lower():
+                assert "search_support_policies" in TOOL_EXECUTION_LOG, (
+                    "Policy query did not invoke the RAG tool."
+                )
+            if "OLA-0001" in question.upper():
+                assert "check_support_ticket_status" in TOOL_EXECUTION_LOG, (
+                    "Ticket query did not invoke the ticket lookup tool."
+                )
+        except Exception as exc:
+            print(f"CrewAI kickoff/validation failed: {type(exc).__name__}: {exc}")
+            raise
 
     print("\nRunning explicit offline tool verification...")
-    offline_result = run_local_tools(question)
-    print(
-        json.dumps(offline_result, indent=2, ensure_ascii=False)
-    )
+    print(json.dumps(
+        run_local_tools("What is the status of ticket OLA-0001?"),
+        indent=2,
+        ensure_ascii=False,
+    ))

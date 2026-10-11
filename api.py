@@ -82,6 +82,24 @@ app = FastAPI(
 )
 
 
+
+@app.middleware("http")
+async def log_every_http_request(request, call_next):
+    """Log exactly one metadata-only JSONL event for every HTTP request."""
+    trace_id = str(uuid.uuid4())
+    started = time.perf_counter()
+    try:
+        response = await call_next(request)
+    except Exception:
+        log_request(trace_id, request.url.path, started, "error", 500)
+        raise
+
+    outcome = "success" if response.status_code < 400 else "error"
+    log_request(trace_id, request.url.path, started, outcome, response.status_code)
+    response.headers["X-Trace-ID"] = trace_id
+    return response
+
+
 class AskRequest(BaseModel):
     question: str = Field(min_length=1, max_length=2000)
     session_id: str = Field(default="default", min_length=1, max_length=100)
@@ -105,21 +123,13 @@ def root():
 
 @app.post("/ask")
 def ask_support(request: AskRequest):
-    """Answer a support question and log safe request metadata."""
-
-    trace_id = str(uuid.uuid4())
-    started = time.perf_counter()
-
+    """Answer a support question; HTTP middleware records safe metadata."""
     try:
-        result = run_support_workflow(
+        return run_support_workflow(
             request.question,
             session_id=request.session_id,
         )
-        log_request(trace_id, "/ask", started, "success", 200)
-        return result
-
     except Exception:
-        log_request(trace_id, "/ask", started, "error", 500)
         raise HTTPException(
             status_code=500,
             detail="The support request could not be processed.",
@@ -130,9 +140,6 @@ def ask_support(request: AskRequest):
 def add_document(request: AddDocumentRequest):
     """Add a Markdown policy document and refresh cached RAG components."""
 
-    trace_id = str(uuid.uuid4())
-    started = time.perf_counter()
-
     slug = re.sub(
         r"[^a-z0-9]+",
         "_",
@@ -140,9 +147,6 @@ def add_document(request: AddDocumentRequest):
     ).strip("_")
 
     if not slug:
-        log_request(
-            trace_id, "/add-document", started, "invalid_title", 400
-        )
         raise HTTPException(
             status_code=400,
             detail="Please provide a valid document title.",
@@ -152,7 +156,6 @@ def add_document(request: AddDocumentRequest):
     file_path = KNOWLEDGE_BASE_DIR / f"{slug}.md"
 
     if file_path.exists():
-        log_request(trace_id, "/add-document", started, "duplicate", 409)
         raise HTTPException(
             status_code=409,
             detail="A document with this title already exists.",
@@ -171,8 +174,6 @@ def add_document(request: AddDocumentRequest):
 
         mock_workflow._rag_components = None
 
-        log_request(trace_id, "/add-document", started, "success", 200)
-
         return {
             "message": "Document added successfully.",
             "filename": file_path.name,
@@ -180,7 +181,6 @@ def add_document(request: AddDocumentRequest):
         }
 
     except Exception:
-        log_request(trace_id, "/add-document", started, "error", 500)
         raise HTTPException(
             status_code=500,
             detail="The document could not be added.",
