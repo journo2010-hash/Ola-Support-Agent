@@ -151,12 +151,17 @@ verified through API testing.
 
 **Say:**
 
-I validated the prototype through Python syntax checks, nine governance
-unit tests, four guardrail regression tests, CrewAI tool-execution
-verification, HTTP endpoint tests, and WebSocket testing.
+I validated the offline controls through Python compilation and a green
+GitHub Actions smoke-test run. The regression suite covers nine governance
+tests, four workflow-control tests, three ticket-score tests, three
+output-grounding tests, API trace/log privacy, and two AutoGen review
+scenarios, plus four guardrail checks.
 
-The policy retrieval and safety scenarios behaved as expected in these
-tests.
+The deterministic evidence transcripts demonstrate cache hits without
+redundant ticket-tool calls, ticket context carryover and reset, token and
+synthetic budget rejection, an unchanged AutoGen approval, and a real
+revision removing an unsupported claim. The full RAG/CrewAI policy path
+still requires the SentenceTransformer model to be pre-cached locally.
 
 The evaluation framework also runs 15 test cases. Its scores are
 heuristic indicators, so they should not be interpreted as independent
