@@ -106,6 +106,21 @@ class AskRequest(BaseModel):
     session_id: str = Field(default="default", min_length=1, max_length=100)
 
 
+
+class CrewAskResponse(BaseModel):
+    """Validated response from the CrewAI plus AutoGen endpoint."""
+
+    answer: str
+    mode: str = "MOCK_LLM"
+    fallback: bool = False
+    sources: list[str] = Field(default_factory=list)
+    tools_used: list[str] = Field(default_factory=list)
+    ticket: dict | None = None
+    question: str
+    governance: dict
+    review: dict | None = None
+
+
 class AddDocumentRequest(BaseModel):
     title: str = Field(min_length=1, max_length=100)
     content: str = Field(min_length=10, max_length=10000)
@@ -137,11 +152,11 @@ def ask_support(request: AskRequest):
         )
 
 
-@app.post("/ask-crew")
+@app.post("/ask-crew", response_model=CrewAskResponse)
 def ask_support_with_crew(request: AskRequest):
     """Run the actual CrewAI crew, then review its draft with AutoGen."""
     from governance import classify_request
-    from guardrails import check_input, enforce_output_grounding
+    from guardrails import check_input, enforce_output_grounding, mask_phone_numbers
     from mock_workflow import (
         MAX_INPUT_TOKENS,
         MAX_REQUEST_COST_USD,
@@ -160,6 +175,7 @@ def ask_support_with_crew(request: AskRequest):
             "fallback": True,
             "sources": [],
             "tools_used": [],
+            "question": mask_phone_numbers(original_question),
             "governance": {
                 "risk_level": "high",
                 "autonomy_level": "blocked",
