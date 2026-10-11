@@ -36,6 +36,7 @@ A capstone project demonstrating an AI-assisted customer-support workflow using 
 | `test_workflow_controls.py` | Cache, session-context, token-limit, and budget regression tests |
 | `test_ticket_lookup.py` | Escalation-score formula and percentile-threshold tests |
 | `test_output_grounding.py` | Output-grounding guard regression tests |
+| `test_api_logging.py` | One-log-per-request, trace ID, and PII-safe API logging tests |
 | `run_capstone_evidence.py` | Reproducible cache, memory, and budget transcript |
 | `requirements-ci.txt` | Minimal offline test dependencies |
 | `.github/workflows/capstone-smoke.yml` | Deterministic smoke-test workflow |
@@ -400,6 +401,7 @@ python -m unittest test_autogen_review.py -v
 python -m unittest test_workflow_controls.py -v
 python -m unittest test_ticket_lookup.py -v
 python -m unittest test_output_grounding.py -v
+python -m unittest test_api_logging.py -v
 ```
 
 Running `python autogen_review.py` writes the real run output to `evidence/autogen_review_transcript.txt`.
@@ -429,6 +431,7 @@ python test_guardrails.py
 python -m unittest test_workflow_controls.py -v
 python -m unittest test_ticket_lookup.py -v
 python -m unittest test_output_grounding.py -v
+python -m unittest test_api_logging.py -v
 python -m unittest test_autogen_review.py -v
 python run_capstone_evidence.py
 python rag.py
