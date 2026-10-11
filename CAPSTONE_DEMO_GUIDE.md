@@ -81,15 +81,13 @@ $body = @{
 } | ConvertTo-Json
 
 Invoke-RestMethod `
-  -Uri "http://127.0.0.1:8001/ask" `
+  -Uri "http://127.0.0.1:8001/ask-crew" `
   -Method Post `
   -ContentType "application/json" `
   -Body $body
 ```
 
-**Explain:** The response should contain policy information, source
-filename `ticket_priority.md`, the tool used, and a LOW-risk, READ_ONLY
-governance decision.
+**Explain:** This endpoint runs the three-agent CrewAI crew and then returns the AutoGen review verdict. The response should contain policy information, a source filename, the tools used, and a LOW-risk, READ_ONLY governance decision.
 
 #### Demo B --- Ticket lookup
 
@@ -99,14 +97,13 @@ $body = @{
 } | ConvertTo-Json
 
 Invoke-RestMethod `
-  -Uri "http://127.0.0.1:8001/ask" `
+  -Uri "http://127.0.0.1:8001/ask-crew" `
   -Method Post `
   -ContentType "application/json" `
   -Body $body
 ```
 
-**Explain:** The prototype retrieves ticket status and related fields
-from its ticket lookup tool/data source.
+**Explain:** The CrewAI lookup agent retrieves ticket status and related fields. The response also includes the structured AutoGen review result.
 
 #### Demo C --- Refund safety control
 
