@@ -1,6 +1,7 @@
 
 """FastAPI interface for the Ola Support Agent with safe JSONL logging."""
 
+import asyncio
 import json
 import logging
 import re
@@ -133,6 +134,125 @@ def ask_support(request: AskRequest):
         raise HTTPException(
             status_code=500,
             detail="The support request could not be processed.",
+        )
+
+
+@app.post("/ask-crew")
+def ask_support_with_crew(request: AskRequest):
+    """Run the actual CrewAI crew, then review its draft with AutoGen."""
+    from crew_support import (
+        TOOL_EXECUTION_LOG,
+        TOOL_RESULT_LOG,
+        build_support_crew,
+        validate_crew_response,
+    )
+    from governance import classify_request
+    from guardrails import check_input, enforce_output_grounding
+    from mock_workflow import (
+        MAX_INPUT_TOKENS,
+        MAX_REQUEST_COST_USD,
+        estimate_mock_cost_usd,
+        estimate_tokens,
+    )
+    from autogen_review import review_draft
+
+    original_question = request.question.strip()
+    input_tokens = estimate_tokens(original_question)
+    estimated_cost = estimate_mock_cost_usd(input_tokens)
+
+    if input_tokens > MAX_INPUT_TOKENS or estimated_cost > MAX_REQUEST_COST_USD:
+        return {
+            "answer": "Your request exceeds the configured request limit. Please shorten it and try again.",
+            "mode": "MOCK_LLM",
+            "fallback": True,
+            "sources": [],
+            "tools_used": [],
+            "governance": {
+                "risk_level": "high",
+                "autonomy_level": "blocked",
+                "allowed": False,
+                "reason": "The configured input-token or mock-budget limit was exceeded.",
+                "estimated_input_tokens": input_tokens,
+                "estimated_mock_cost_usd": round(estimated_cost, 6),
+                "max_request_cost_usd": MAX_REQUEST_COST_USD,
+            },
+        }
+
+    guardrail = check_input(original_question)
+    safe_question = guardrail.masked_text
+    decision = classify_request(
+        safe_question,
+        guardrail_blocked=guardrail.blocked,
+    )
+    if guardrail.blocked or not decision.allowed:
+        return {
+            "answer": (
+                "I can't process this request because it is blocked by the "
+                "support agent's safety and governance rules."
+            ),
+            "mode": "MOCK_LLM",
+            "fallback": True,
+            "sources": [],
+            "tools_used": [],
+            "question": safe_question,
+            "governance": decision.to_dict(),
+        }
+
+    try:
+        TOOL_EXECUTION_LOG.clear()
+        TOOL_RESULT_LOG.clear()
+        crew = build_support_crew()
+        raw_result = crew.kickoff(inputs={"question": safe_question})
+        response = validate_crew_response(raw_result)
+
+        policy_result = TOOL_RESULT_LOG.get("policy", {})
+        ticket_result = TOOL_RESULT_LOG.get("ticket", {})
+        retrieved_context = str(policy_result.get("answer", "")).strip()
+        if ticket_result.get("found"):
+            retrieved_context += (
+                "\\nTicket lookup result: "
+                + json.dumps(ticket_result, ensure_ascii=False)
+            )
+
+        grounding = enforce_output_grounding(
+            answer=response.answer,
+            sources=response.sources,
+            fallback=response.fallback,
+        )
+        if grounding["fallback"] and not response.ticket:
+            final_answer = grounding["answer"]
+            review = {
+                "approved": False,
+                "reason": "The output grounding check rejected an answer without source evidence.",
+            }
+        else:
+            verdict = asyncio.run(
+                review_draft(response.answer, retrieved_context)
+            )
+            final_answer = verdict.final_answer
+            review = verdict.model_dump()
+
+        return {
+            "answer": final_answer,
+            "mode": "MOCK_LLM",
+            "fallback": response.fallback or (
+                not response.sources and not response.ticket
+            ),
+            "sources": response.sources,
+            "tools_used": response.tools_used,
+            "ticket": (
+                response.ticket.model_dump()
+                if response.ticket is not None
+                else None
+            ),
+            "question": safe_question,
+            "governance": decision.to_dict(),
+            "review": review,
+        }
+    except Exception:
+        raise HTTPException(
+            status_code=500,
+            detail="The CrewAI support request could not be processed.",
         )
 
 
