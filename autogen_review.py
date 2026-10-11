@@ -179,7 +179,7 @@ def _extract_draft(messages: Sequence[LLMMessage]) -> str:
     for message in reversed(messages):
         content = str(message.content)
         match = re.search(
-            r"Draft answer:\\s*(.*?)(?:\\nReviewer instructions:|$)",
+            r"Draft answer:\s*(.*?)(?:\nReviewer instructions:|$)",
             content,
             re.IGNORECASE | re.DOTALL,
         )
