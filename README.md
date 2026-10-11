@@ -40,6 +40,8 @@ A capstone project demonstrating an AI-assisted customer-support workflow using 
 | `run_capstone_evidence.py` | Reproducible cache, memory, and budget transcript |
 | `requirements-ci.txt` | Minimal offline test dependencies |
 | `.github/workflows/capstone-smoke.yml` | Deterministic smoke-test workflow |
+| `evidence/autogen_review_transcript.txt` | Actual CI output for unchanged approval and grounded revision |
+| `evidence/capstone_controls_transcript.txt` | Actual CI output for cache, session carryover/reset, and budget controls |
 | `crew_support.py` | CrewAI agents, tasks, and tools |
 | `mock_llm.py` | Deterministic mock language model for local testing |
 | `mock_workflow.py` | Support workflow, memory, guardrails, caching, and governance integration |
@@ -167,6 +169,8 @@ The RAG implementation compares two document chunking strategies:
 
 Both approaches use local SentenceTransformer embeddings and separate ChromaDB collections. The implementation uses `collection.upsert()` to index generated chunks.
 
+For graded runs, `rag.py` forces Hugging Face/Transformers offline mode. Ensure `sentence-transformers/all-MiniLM-L6-v2` is already present in the local model cache before running RAG, CrewAI policy retrieval, or the full support evaluation; the application will not download it at runtime.
+
 Hybrid retrieval combines:
 
 - 75% semantic similarity.
@@ -189,7 +193,7 @@ The current five-query document-level evaluation produced the following results:
 | Mean document-level precision | 1.000 | 1.000 |
 | Mean document-level recall | 1.000 | 1.000 |
 
-Both strategies retrieved the expected document for all five tested queries. They tie on the current metrics; these results do not establish that either strategy is universally better.
+Both strategies retrieved the expected document for all five tested queries, giving each a mean document-level precision of `1.000` and recall of `1.000`. I recommend keeping sentence-based chunking as the default for its fine-grained source units while retaining fixed-overlap as a comparison; this is an implementation preference, not evidence that it is more accurate. Expand the query set before claiming a performance advantage.
 
 The threshold calibration tested five in-scope queries and two out-of-scope questions. The selected thresholds separated the observed scores in this small sample.
 
@@ -254,7 +258,7 @@ Run the deterministic carryover/reset and cache/budget evidence demonstration:
 python run_capstone_evidence.py
 ```
 
-The script writes its actual console output to `evidence/capstone_controls_transcript.txt`. It demonstrates a ticket lookup followed by an escalation-score follow-up, then shows that a fresh or reset session cannot resolve the pronoun without a ticket ID. It also prints counters before and after a normalized-query cache hit and verifies that the second identical query does not call the ticket tool again.
+The script writes its actual console output to `evidence/capstone_controls_transcript.txt`. The checked-in transcript was captured from a successful deterministic CI run; the CI workflow also uploads both transcript files as the `capstone-text-evidence` artifact. It demonstrates a ticket lookup followed by an escalation-score follow-up, then shows that a fresh or reset session cannot resolve the pronoun without a ticket ID. It also prints counters before and after a normalized-query cache hit and verifies that the second identical query does not call the ticket tool again.
 
 Pydantic models validate structured support responses and AutoGen review verdicts. Session history is in memory and is not durable production storage.
 
@@ -404,7 +408,7 @@ python -m unittest test_output_grounding.py -v
 python -m unittest test_api_logging.py -v
 ```
 
-Running `python autogen_review.py` writes the real run output to `evidence/autogen_review_transcript.txt`.
+Running `python autogen_review.py` regenerates `evidence/autogen_review_transcript.txt`. The checked-in transcript was captured from a successful deterministic CI run; the CI workflow also uploads the generated transcript files as the `capstone-text-evidence` artifact.
 
 This is a deterministic mock demonstration, not an evaluation of a production language model.
 
