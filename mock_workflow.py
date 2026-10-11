@@ -518,6 +518,31 @@ def run_support_workflow(
         _store_cached_response(key, response)
         return response
 
+    # A ticket pronoun without a ticket ID in this session is unresolved.
+    # Do not send this ticket-specific follow-up to policy RAG.
+    unresolved_ticket_reference = bool(
+        re.search(
+            r"\\b(it|its|that ticket|this ticket|the ticket)\\b",
+            safe_question,
+            re.IGNORECASE,
+        )
+        and not is_ticket_lookup_question(contextual_question)
+    )
+    if unresolved_ticket_reference:
+        answer = (
+            "I couldn't resolve the ticket reference in this session. "
+            "Please provide a ticket ID such as OLA-0001."
+        )
+        response = _make_response(
+            question=safe_question,
+            answer=answer,
+            fallback=True,
+            governance=governance,
+        )
+        session_memory.add_turn(session_id, safe_question, answer)
+        _store_cached_response(key, response)
+        return response
+
     # Avoid inventing answers for unrelated questions.
     if not _is_supported_policy_question(safe_question):
         answer = (
