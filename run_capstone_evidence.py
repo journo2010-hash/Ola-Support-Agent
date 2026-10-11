@@ -2,6 +2,7 @@
 
 import contextlib
 import io
+import time
 from pathlib import Path
 
 from mock_workflow import (
@@ -24,16 +25,22 @@ def main():
         response_cache.clear()
         reset_workflow_metrics()
         query = "What is the status of ticket OLA-0001?"
+        started = time.perf_counter()
         first = run_support_workflow(query, session_id="cache-evidence")
+        first_duration_ms = (time.perf_counter() - started) * 1000
         after_first = get_workflow_metrics()
+        started = time.perf_counter()
         second = run_support_workflow(
             "  WHAT IS THE STATUS OF TICKET ola-0001?  ",
             session_id="cache-evidence",
         )
+        second_duration_ms = (time.perf_counter() - started) * 1000
         after_second = get_workflow_metrics()
         print("First answer:", first["answer"])
+        print(f"First request duration_ms: {first_duration_ms:.3f}")
         print("Counters after first request:", after_first)
         print("Second response cache_hit:", second.get("cache_hit", False))
+        print(f"Second request duration_ms: {second_duration_ms:.3f}")
         print("Counters after second request:", after_second)
         assert second.get("cache_hit") is True
         assert after_second["ticket_tool_calls"] == after_first["ticket_tool_calls"] == 1
