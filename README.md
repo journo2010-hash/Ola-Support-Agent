@@ -38,7 +38,6 @@ A capstone project demonstrating an AI-assisted customer-support workflow using 
 | `test_ticket_lookup.py` | Escalation-score formula and percentile-threshold tests |
 | `test_output_grounding.py` | Output-grounding guard regression tests |
 | `test_api_logging.py` | One-log-per-request, trace ID, and PII-safe API logging tests |
-| `run_capstone_evidence.py` | Reproducible cache, memory, and budget transcript |
 | `requirements-ci.txt` | Minimal offline test dependencies |
 | `.github/workflows/capstone-smoke.yml` | Deterministic smoke-test workflow |
 | `CAPSTONE_RUBRIC_CHECKLIST.md` | Rubric-to-implementation and evidence checklist |
