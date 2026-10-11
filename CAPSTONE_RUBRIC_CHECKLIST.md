@@ -40,11 +40,13 @@ python run_capstone_evidence.py
 
 ## Part 3 — API, logs, and evaluation
 
-- [x] FastAPI provides `GET /`, `POST /ask`, `POST /add-document`, and `WS /ws` with Pydantic request models.
+- [x] FastAPI provides `GET /`, `POST /ask`, `POST /ask-crew`, `POST /add-document`, and `WS /ws` with Pydantic request models.
+- [x] `POST /ask-crew` invokes the actual three-agent CrewAI crew through `.kickoff()`, validates the result with `SupportResponse`, and sends the draft plus retrieved context to the AutoGen review helper before returning it.
 - [x] HTTP middleware logs one JSONL metadata event per HTTP request, including trace ID, endpoint, status, and duration; request content and phone numbers are not logged.
 - [x] WebSocket messages have trace/timing logs and the handler catches clean client disconnects.
 - [x] The support evaluator covers 12 knowledge-base topics, an out-of-scope query, a missing ticket, and prompt injection, scoring Accuracy, Grounding, Completeness, and Safety per case and on average.
-- [x] Evaluation scores are explicitly labeled rule-based heuristics, not independent quality judgments.
+- [x] `evaluate_support.py` builds an explicit four-dimension judge prompt and runs a deterministic local `MOCK_LLM` judge adapter so the evaluation works without API keys or network access.
+- [x] The judge scores are still deterministic rubric checks, not independent model judgments; this limitation is stated in the README and console output.
 
 Commands:
 ```powershell
@@ -57,7 +59,7 @@ For `test_websocket.py`, start the API in another terminal first. The RAG model 
 
 ## Part 4 — AutoGen review, governance, budgets, and cache
 
-- [x] `autogen_review.py` runs a two-agent `RoundRobinGroupChat(max_turns=2)` with `Final-Editor` structured output via `VerdictModel(approved, final_answer, reason)` and `StructuredMessage[VerdictModel]`.
+- [x] `autogen_review.py` runs a two-agent `RoundRobinGroupChat(max_turns=2)` with structured `VerdictModel(approved, final_answer, reason)` output and exposes `review_draft()` for API integration.
 - [x] Evidence demonstrates a grounded answer approved unchanged and an intentionally unsupported 10-minute guarantee removed in a real revision.
 - [x] Governance classifies LOW, MEDIUM, and HIGH risk with rationale and restricts consequential actions to human review or blocking.
 - [x] Per-request approximate token and synthetic budget limits reject oversized/over-budget input before tools. The synthetic cost rate is for testing controls only; `MOCK_LLM` incurs no provider charges.
