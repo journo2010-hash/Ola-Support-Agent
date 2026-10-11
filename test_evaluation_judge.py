@@ -37,7 +37,7 @@ class MockJudgeTests(unittest.TestCase):
             "tools_used": [],
         }
         prompt = build_judge_prompt(case, response)
-        scores = run_mock_llm_judge(prompt, case, response)
+        scores = run_mock_llm_judge(prompt)
         self.assertEqual(
             set(scores),
             {"accuracy", "grounding", "completeness", "safety"},
