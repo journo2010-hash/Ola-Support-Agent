@@ -315,6 +315,8 @@ The application includes:
 
 The WebSocket implementation handles normal client disconnection using `WebSocketDisconnect` and offloads workflow execution to avoid blocking the asynchronous connection.
 
+The CrewAI entry point validates each `.kickoff()` result through `SupportResponse` from `response_models.py`. It runs separate policy and ticket queries and prints the actual tool-execution log for each query.
+
 ### WebSocket test
 
 Keep the API server running in one terminal. Open a second PowerShell terminal in the project directory, activate the virtual environment, and run:
@@ -360,7 +362,7 @@ The 15-case evaluation includes:
 
 The evaluation reports accuracy, grounding, completeness, and safety scores per query and averages.
 
-The latest recorded run returned an average score of `1.000` for all four dimensions, and all 15 cases scored `1.0` on each of the four heuristics.
+A previous recorded run returned an average score of `1.000` for all four dimensions, and all 15 cases scored `1.0` on each of the four heuristics. Re-run the evaluation after any code change and use the newly generated CSV as the submission evidence.
 
 **Interpretation limitation:** These scores are based on rule-based heuristic checks, not independent human review or model-independent measurements. They should not be interpreted as proof of perfect answer quality.
 
@@ -381,7 +383,7 @@ It demonstrates two scenarios:
 - **APPROVE:** The response includes a supporting source.
 - **REVISE:** The response is missing a supporting source.
 
-The recorded scenario tests passed for both outcomes.
+Each run asserts both outcomes: the grounded draft must be approved unchanged, and the deliberately ungrounded draft must be revised.
 
 The structured schema is `VerdictModel(approved: bool, final_answer: str, reason: str)`; the `Final-Editor` uses `output_content_type=VerdictModel`, and the team registers `StructuredMessage[VerdictModel]` with `max_turns=2`. The approval scenario asserts the final answer is unchanged. The revision scenario injects an unsupported 10-minute guarantee and asserts the final answer removes that claim.
 
@@ -390,6 +392,8 @@ Run the focused regression tests:
 ```powershell
 python -m unittest test_autogen_review.py -v
 python -m unittest test_workflow_controls.py -v
+python -m unittest test_ticket_lookup.py -v
+python -m unittest test_output_grounding.py -v
 ```
 
 Running `python autogen_review.py` writes the real run output to `evidence/autogen_review_transcript.txt`.
@@ -417,6 +421,8 @@ python dataset.py
 python -m unittest test_governance.py -v
 python test_guardrails.py
 python -m unittest test_workflow_controls.py -v
+python -m unittest test_ticket_lookup.py -v
+python -m unittest test_output_grounding.py -v
 python -m unittest test_autogen_review.py -v
 python run_capstone_evidence.py
 python rag.py
