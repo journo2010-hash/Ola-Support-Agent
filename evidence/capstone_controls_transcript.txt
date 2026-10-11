@@ -3,10 +3,10 @@ Mode: MOCK_LLM; ticket-only demonstrations; no model/API call.
 
 1. NORMALIZED QUERY CACHE
 First answer: Ticket OLA-0001 is currently Open.
-First request duration_ms: 1.572
+First request duration_ms: 4.092
 Counters after first request: {'workflow_calls': 1, 'cache_hits': 0, 'cache_misses': 1, 'policy_tool_calls': 0, 'ticket_tool_calls': 1, 'rejected_oversized_requests': 0, 'rejected_budget_requests': 0, 'estimated_input_tokens_total': 10, 'estimated_mock_cost_usd_total': 1e-05}
 Second response cache_hit: True
-Second request duration_ms: 0.191
+Second request duration_ms: 0.259
 Counters after second request: {'workflow_calls': 2, 'cache_hits': 1, 'cache_misses': 1, 'policy_tool_calls': 0, 'ticket_tool_calls': 1, 'rejected_oversized_requests': 0, 'rejected_budget_requests': 0, 'estimated_input_tokens_total': 20, 'estimated_mock_cost_usd_total': 2e-05}
 PASS: repeated normalized query hit cache; no redundant ticket tool call.
 
