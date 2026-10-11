@@ -14,9 +14,41 @@ from ticket_lookup import check_support_ticket_status
 
 MODE = "MOCK_LLM"
 MAX_INPUT_TOKENS = 400
+# Illustrative rate for exercising budget enforcement in MOCK_LLM only.
+# It is not a provider price; MOCK_LLM makes no billable model calls.
+MOCK_COST_PER_1K_TOKENS_USD = 0.001
+MAX_REQUEST_COST_USD = 0.0003
 CACHE_TTL_SECONDS = 60
 
 session_memory = SessionMemory(max_turns=10)
+
+WORKFLOW_METRICS: dict[str, float | int] = {
+    "workflow_calls": 0,
+    "cache_hits": 0,
+    "cache_misses": 0,
+    "policy_tool_calls": 0,
+    "ticket_tool_calls": 0,
+    "rejected_oversized_requests": 0,
+    "rejected_budget_requests": 0,
+    "estimated_input_tokens_total": 0,
+    "estimated_mock_cost_usd_total": 0.0,
+}
+
+
+def get_workflow_metrics() -> dict[str, float | int]:
+    """Return a snapshot of cache, tool-call, and budget counters."""
+    return dict(WORKFLOW_METRICS)
+
+
+def reset_workflow_metrics() -> None:
+    """Reset counters for a reproducible demonstration."""
+    for key in WORKFLOW_METRICS:
+        WORKFLOW_METRICS[key] = 0.0 if "cost" in key else 0
+
+
+def estimate_mock_cost_usd(token_count: int) -> float:
+    """Estimate an illustrative cost unit; actual MOCK_LLM provider cost is $0."""
+    return max(0, token_count) / 1000 * MOCK_COST_PER_1K_TOKENS_USD
 
 # Cache entries: key -> (created_at, response)
 response_cache: dict[str, tuple[float, dict[str, Any]]] = {}
@@ -43,10 +75,10 @@ def estimate_tokens(text: str) -> int:
     return max(1, (len(text) + 3) // 4)
 
 
-def _cache_key(question: str, session_id: str) -> str:
-    """Normalize the question before building its session-specific cache key."""
-    normalized = re.sub(r"\s+", " ", question.strip().lower())
-    return f"{session_id.strip()}::{normalized}"
+def _cache_key(question: str, session_id: str | None = None) -> str:
+    """Key the in-memory cache by normalized query text, independent of session."""
+    del session_id  # Retained as an optional compatibility argument.
+    return re.sub(r"\s+", " ", question.strip().lower())
 
 
 def _get_cached_response(key: str) -> Optional[dict[str, Any]]:
@@ -54,13 +86,17 @@ def _get_cached_response(key: str) -> Optional[dict[str, Any]]:
     entry = response_cache.get(key)
 
     if entry is None:
+        WORKFLOW_METRICS["cache_misses"] += 1
         return None
 
     created_at, response = entry
 
     if time.monotonic() - created_at > CACHE_TTL_SECONDS:
         response_cache.pop(key, None)
+        WORKFLOW_METRICS["cache_misses"] += 1
         return None
+
+    WORKFLOW_METRICS["cache_hits"] += 1
 
     # Return a copy so callers cannot modify the cached object.
     result = dict(response)
@@ -84,18 +120,11 @@ def reset_session(session_id: str = "default") -> dict[str, Any]:
     """Clear one session's conversation history and cached responses."""
     session_memory.clear_session(session_id)
 
-    prefix = f"{session_id.strip()}::"
-    keys_to_remove = [
-        key for key in response_cache if key.startswith(prefix)
-    ]
-
-    for key in keys_to_remove:
-        response_cache.pop(key, None)
-
+    # Query cache entries are independent of conversation history.
     return {
         "session_id": session_id,
         "reset": True,
-        "cache_entries_removed": len(keys_to_remove),
+        "cache_entries_removed": 0,
     }
 
 
@@ -213,6 +242,7 @@ def get_rag_components() -> tuple:
 
 def search_support_policies(question: str) -> dict[str, Any]:
     """Search the support knowledge base and return grounded results."""
+    WORKFLOW_METRICS["policy_tool_calls"] += 1
     from rag import grounded_answer
 
     components = get_rag_components()
@@ -277,11 +307,30 @@ def search_support_policies(question: str) -> dict[str, Any]:
     }
 
 
+def _resolve_session_context(question: str, session_id: str) -> str:
+    """Resolve a recent ticket pronoun only when session history is unambiguous."""
+    lowered = question.lower()
+    follow_up = bool(
+        re.search(r"\b(it|its|that ticket|this ticket|the ticket)\b", lowered)
+        and re.search(r"\b(status|score|resolution|category|escalat|ticket)\b", lowered)
+    )
+    if not follow_up:
+        return question
+
+    for turn in reversed(session_memory.get_history(session_id)):
+        prior_user = str(turn.get("user", ""))
+        match = re.search(r"\bOLA-\d{4,}\b", prior_user, re.IGNORECASE)
+        if match:
+            return f"{question} (context ticket ID: {match.group(0).upper()})"
+    return question
+
+
 def run_support_workflow(
     question: str,
     session_id: str = "default",
 ) -> dict[str, Any]:
     """Run the guarded, cached, mock support-agent workflow."""
+    WORKFLOW_METRICS["workflow_calls"] += 1
     original_question = question.strip()
     session_id = (session_id or "default").strip()
 
@@ -293,12 +342,18 @@ def run_support_workflow(
             governance=classify_request(" ").to_dict(),
         )
 
-    # Reject oversized requests before invoking downstream components.
-    if estimate_tokens(original_question) > MAX_INPUT_TOKENS:
+    # Enforce both an approximate input-token limit and a mock-only budget.
+    input_tokens = estimate_tokens(original_question)
+    estimated_cost = estimate_mock_cost_usd(input_tokens)
+    WORKFLOW_METRICS["estimated_input_tokens_total"] += input_tokens
+    WORKFLOW_METRICS["estimated_mock_cost_usd_total"] += estimated_cost
+
+    if input_tokens > MAX_INPUT_TOKENS:
+        WORKFLOW_METRICS["rejected_oversized_requests"] += 1
         return _make_response(
             question=original_question[:500],
             answer=(
-                "Your request exceeds the supported input limit. "
+                "Your request exceeds the supported input-token limit. "
                 "Please shorten it and try again."
             ),
             fallback=True,
@@ -307,7 +362,32 @@ def run_support_workflow(
                 "autonomy_level": "blocked",
                 "allowed": False,
                 "requires_human_review": False,
-                "reason": "The request exceeded the configured input-size limit.",
+                "reason": "The request exceeded the configured input-token limit.",
+                "max_input_tokens": MAX_INPUT_TOKENS,
+                "estimated_input_tokens": input_tokens,
+                "estimated_mock_cost_usd": round(estimated_cost, 6),
+                "max_request_cost_usd": MAX_REQUEST_COST_USD,
+            },
+        )
+
+    if estimated_cost > MAX_REQUEST_COST_USD:
+        WORKFLOW_METRICS["rejected_budget_requests"] += 1
+        return _make_response(
+            question=original_question[:500],
+            answer=(
+                "Your request exceeds the configured per-request budget. "
+                "Please shorten it and try again."
+            ),
+            fallback=True,
+            governance={
+                "risk_level": "high",
+                "autonomy_level": "blocked",
+                "allowed": False,
+                "requires_human_review": False,
+                "reason": "The illustrative per-request cost budget was exceeded.",
+                "estimated_input_tokens": input_tokens,
+                "estimated_mock_cost_usd": round(estimated_cost, 6),
+                "max_request_cost_usd": MAX_REQUEST_COST_USD,
             },
         )
 
@@ -337,8 +417,11 @@ def run_support_workflow(
             governance=classify_request(safe_question, guardrail_blocked=True).to_dict(),
         )
 
+    # Resolve only a recent ticket reference from this session, when present.
+    contextual_question = _resolve_session_context(safe_question, session_id)
+
     # Classify the request before cache lookup or any tool execution.
-    governance_decision = classify_request(safe_question)
+    governance_decision = classify_request(contextual_question)
     governance = governance_decision.to_dict()
 
     if not governance_decision.allowed:
@@ -354,17 +437,19 @@ def run_support_workflow(
         return response
 
     # Never cache unsafe or oversized inputs. Cache only after guardrails.
-    key = _cache_key(safe_question, session_id)
+    key = _cache_key(contextual_question)
     cached = _get_cached_response(key)
 
     if cached is not None:
+        cached["question"] = safe_question
+        session_memory.add_turn(session_id, safe_question, cached["answer"])
         return cached
 
     # Explicit ticket IDs must always go through the ticket lookup tool.
-    if is_ticket_lookup_question(safe_question):
+    if is_ticket_lookup_question(contextual_question):
         ticket_match = re.search(
             r"\bOLA-\d{4,}\b",
-            safe_question,
+            contextual_question,
             re.IGNORECASE,
         )
 
@@ -372,6 +457,7 @@ def run_support_workflow(
             ticket_result = {"found": False}
         else:
             ticket_id = ticket_match.group(0).upper()
+            WORKFLOW_METRICS["ticket_tool_calls"] += 1
             ticket_result = check_support_ticket_status(ticket_id)
 
         if not ticket_result.get("found", False):
@@ -397,6 +483,14 @@ def run_support_workflow(
                 f"Ticket {ticket['record_id']} is currently "
                 f"{ticket['status']}."
             )
+            lowered_context = contextual_question.lower()
+            if "escalation score" in lowered_context or "escalation risk" in lowered_context:
+                answer += f" Escalation score: {ticket['escalation_score']}."
+                answer += f" Priority review flag: {ticket['priority_review_flag']}."
+            elif "resolution time" in lowered_context:
+                answer += f" Resolution time: {ticket['resolution_time_hours']} hours."
+            elif "category" in lowered_context:
+                answer += f" Category: {ticket['category']}."
 
             response = _make_response(
                 question=safe_question,
@@ -442,7 +536,7 @@ def run_support_workflow(
 
     # Search the knowledge base for supported policy questions.
     try:
-        policy_result = search_support_policies(safe_question)
+        policy_result = search_support_policies(contextual_question)
 
         response = _make_response(
             question=safe_question,
