@@ -249,6 +249,14 @@ if __name__ == "__main__":
             print(validated.model_dump_json(indent=2))
             print("CrewAI tool execution log:", TOOL_EXECUTION_LOG)
             assert validated.mode == "MOCK_LLM"
+            if "policy" in question.lower():
+                assert "search_support_policies" in TOOL_EXECUTION_LOG, (
+                    "Policy query did not invoke the RAG tool."
+                )
+            if "OLA-0001" in question.upper():
+                assert "check_support_ticket_status" in TOOL_EXECUTION_LOG, (
+                    "Ticket query did not invoke the ticket lookup tool."
+                )
         except Exception as exc:
             print(f"CrewAI kickoff/validation failed: {type(exc).__name__}: {exc}")
             raise
