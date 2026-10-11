@@ -135,8 +135,9 @@ class LocalMockClient(ChatCompletionClient):
                     "approved": True,
                     "final_answer": draft,
                     "reason": (
-                        "The answer stays within the supplied policy context "
-                        "and cites ticket_priority.md."
+                        "The draft stays within the supplied context and "
+                        "does not add a claim that the mock reviewer flags "
+                        "as unsupported."
                     ),
                 })
 
