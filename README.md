@@ -1,6 +1,8 @@
 
 # Ola Domain Support Agent — CrewAI
 
+**Completed track: Ola (Business Operations / Customer Support).**
+
 A capstone project demonstrating an AI-assisted customer-support workflow using a synthetic ticket dataset, a Markdown knowledge base, retrieval-augmented generation (RAG), CrewAI agents, session memory, guardrails, governance controls, a FastAPI interface, and an AutoGen review workflow.
 
 > **Important:** The knowledge-base policies and ticket records are illustrative test data. They are not official Ola policies or real customer records.
@@ -33,7 +35,6 @@ A capstone project demonstrating an AI-assisted customer-support workflow using 
 | `run_capstone_evidence.py` | Reproducible cache, session-memory, and request-budget transcript |
 | `test_workflow_controls.py` | Cache, session-context, token-limit, and budget regression tests |
 | `test_autogen_review.py` | Structured AutoGen approval/revision regression tests |
-| `test_workflow_controls.py` | Cache, session-context, token-limit, and budget regression tests |
 | `test_ticket_lookup.py` | Escalation-score formula and percentile-threshold tests |
 | `test_output_grounding.py` | Output-grounding guard regression tests |
 | `test_api_logging.py` | One-log-per-request, trace ID, and PII-safe API logging tests |
@@ -180,6 +181,18 @@ Hybrid retrieval combines:
 - 25% lexical keyword overlap.
 
 A similarity threshold is calibrated using in-scope and out-of-scope examples. The system returns an uncertainty fallback when the retrieved evidence does not meet the configured threshold.
+
+### Threshold calibration results
+
+The latest recorded calibration run for the recommended sentence-based collection measured these top-1 cosine similarities:
+
+- **In-scope queries:** 0.5988, 0.4180, 0.5441, 0.6245, and 0.6674.
+- **Out-of-scope queries:** 0.0704 and 0.0451.
+- **Highest out-of-scope score:** 0.0704.
+- **Lowest in-scope score:** 0.4180.
+- **Selected sentence-based threshold:** 0.2442, the midpoint between 0.0704 and 0.4180.
+
+The fixed-overlap collection selected a threshold of **0.2378** in the same calibration run. The sentence-based threshold of 0.2442 is used by `initialize_support_rag()` for the support workflow. These values are specific to the listed queries and the local embedding model; they should be recalibrated if the knowledge base, model, or query set changes.
 
 Run the RAG demonstration:
 
