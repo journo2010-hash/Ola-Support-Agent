@@ -140,12 +140,6 @@ def ask_support(request: AskRequest):
 @app.post("/ask-crew")
 def ask_support_with_crew(request: AskRequest):
     """Run the actual CrewAI crew, then review its draft with AutoGen."""
-    from crew_support import (
-        TOOL_EXECUTION_LOG,
-        TOOL_RESULT_LOG,
-        build_support_crew,
-        validate_crew_response,
-    )
     from governance import classify_request
     from guardrails import check_input, enforce_output_grounding
     from mock_workflow import (
@@ -154,7 +148,6 @@ def ask_support_with_crew(request: AskRequest):
         estimate_mock_cost_usd,
         estimate_tokens,
     )
-    from autogen_review import review_draft
 
     original_question = request.question.strip()
     input_tokens = estimate_tokens(original_question)
@@ -199,6 +192,14 @@ def ask_support_with_crew(request: AskRequest):
         }
 
     try:
+        from crew_support import (
+            TOOL_EXECUTION_LOG,
+            TOOL_RESULT_LOG,
+            build_support_crew,
+            validate_crew_response,
+        )
+        from autogen_review import review_draft
+
         TOOL_EXECUTION_LOG.clear()
         TOOL_RESULT_LOG.clear()
         crew = build_support_crew()
