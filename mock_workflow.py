@@ -117,7 +117,7 @@ def _store_cached_response(
 
 
 def reset_session(session_id: str = "default") -> dict[str, Any]:
-    """Clear one session's conversation history and cached responses."""
+    """Clear one session's history while preserving the global query cache."""
     session_memory.clear_session(session_id)
 
     # Query cache entries are independent of conversation history.
