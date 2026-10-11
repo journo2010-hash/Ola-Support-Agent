@@ -31,6 +31,10 @@ class ApiLoggingTests(unittest.TestCase):
         for response in responses:
             self.assertIn("X-Trace-ID", response.headers)
 
+        safe_response = responses[2].json()
+        self.assertIn("[PHONE REDACTED]", safe_response["question"])
+        self.assertNotIn("9876543210", safe_response["question"])
+
         lines = self.log_path.read_text(encoding="utf-8").splitlines()
         new_events = [json.loads(line) for line in lines[self.before:]]
         self.assertEqual(len(new_events), 3)
