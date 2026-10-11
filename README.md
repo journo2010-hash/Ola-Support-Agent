@@ -326,7 +326,7 @@ The application includes:
 
 The WebSocket implementation handles normal client disconnection using `WebSocketDisconnect` and offloads workflow execution to avoid blocking the asynchronous connection.
 
-The CrewAI entry point validates each `.kickoff()` result through `SupportResponse` from `response_models.py`. It runs separate policy and ticket queries and prints the actual tool-execution log for each query.
+The CrewAI entry point validates each `.kickoff()` result through `SupportResponse` from `response_models.py`. It runs separate policy and ticket queries and prints the actual tool-execution log for each query. It also prints per-agent tool assignments so the least-autonomy design is visible: only the ticket lookup specialist receives the ticket lookup tool; the composer receives no tools.
 
 ### WebSocket test
 
