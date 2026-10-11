@@ -58,6 +58,7 @@ class WorkflowControlTests(unittest.TestCase):
             session_id="memory-test",
         )
         self.assertTrue(after_reset["fallback"])
+        self.assertIn("provide a ticket ID", after_reset["answer"])
         self.assertNotIn("Escalation score:", after_reset["answer"])
 
         fresh = run_support_workflow(
@@ -65,6 +66,7 @@ class WorkflowControlTests(unittest.TestCase):
             session_id="fresh-test",
         )
         self.assertTrue(fresh["fallback"])
+        self.assertIn("provide a ticket ID", fresh["answer"])
 
     def test_oversized_request_is_rejected_before_tools(self):
         response = run_support_workflow("x" * (MAX_INPUT_TOKENS * 4 + 20))
