@@ -33,6 +33,12 @@ A capstone project demonstrating an AI-assisted customer-support workflow using 
 | `run_capstone_evidence.py` | Reproducible cache, session-memory, and request-budget transcript |
 | `test_workflow_controls.py` | Cache, session-context, token-limit, and budget regression tests |
 | `test_autogen_review.py` | Structured AutoGen approval/revision regression tests |
+| `test_workflow_controls.py` | Cache, session-context, token-limit, and budget regression tests |
+| `test_ticket_lookup.py` | Escalation-score formula and percentile-threshold tests |
+| `test_output_grounding.py` | Output-grounding guard regression tests |
+| `run_capstone_evidence.py` | Reproducible cache, memory, and budget transcript |
+| `requirements-ci.txt` | Minimal offline test dependencies |
+| `.github/workflows/capstone-smoke.yml` | Deterministic smoke-test workflow |
 | `crew_support.py` | CrewAI agents, tasks, and tools |
 | `mock_llm.py` | Deterministic mock language model for local testing |
 | `mock_workflow.py` | Support workflow, memory, guardrails, caching, and governance integration |
