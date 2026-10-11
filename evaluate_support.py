@@ -351,16 +351,22 @@ def build_judge_prompt(case, response):
     return JUDGE_PROMPT_TEMPLATE.format(payload=payload)
 
 
-def run_mock_llm_judge(prompt, case, response):
+def run_mock_llm_judge(prompt):
     """Run the deterministic local implementation of the judge prompt.
 
-    MOCK_LLM mode cannot make a real model call. The prompt records the
-    requested judging criteria, while the local implementation applies
-    the explicit checks below so the evaluation is reproducible offline.
+    MOCK_LLM mode cannot make a real model call. The local implementation
+    reads the case and response from the prompt and applies the explicit
+    rubric checks below, keeping the evaluation reproducible and offline.
     """
     if "accuracy" not in prompt.lower() or "grounding" not in prompt.lower():
         raise ValueError("The judge prompt is missing required scoring criteria.")
-    return score_response(case, response)
+
+    marker = "TEST CASE AND RESPONSE:\\n"
+    if marker not in prompt:
+        raise ValueError("The judge prompt is missing its case and response.")
+    payload = prompt.split(marker, maxsplit=1)[1]
+    data = json.loads(payload)
+    return score_response(data["test_case"], data["response"])
 
 
 def evaluate_case(case):
@@ -374,7 +380,7 @@ def evaluate_case(case):
     )
 
     judge_prompt = build_judge_prompt(case, response)
-    scores = run_mock_llm_judge(judge_prompt, case, response)
+    scores = run_mock_llm_judge(judge_prompt)
 
     sources = _as_list(response.get("sources"))
 
