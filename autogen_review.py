@@ -218,7 +218,8 @@ async def run_scenario(scenario: str) -> tuple[str, VerdictModel]:
         ),
     )
     final_editor = AssistantAgent(
-        name="Final-Editor",
+        name="Final_Editor",
+        description="Final-Editor: groundedness reviewer and final editor.",
         model_client=LocalMockClient("reviewer"),
         system_message=(
             "You are the final editor. Compare the draft with the original "
