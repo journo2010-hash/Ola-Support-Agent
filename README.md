@@ -113,10 +113,11 @@ These commands describe a fresh installation. If the project and its virtual env
 The default dataset contains 50 synthetic support tickets. The generator uses Python's seeded random generator and starts with a base seed of `42`.
 
 - **Categories:** Billing, Technical Issue, Account Access, Product Defect, and General Inquiry.
-- **Category distribution:** 10 tickets per category in the default dataset.
+- **Category weights/distribution:** Equal category weighting (20% each); 10 tickets per category in the default 50-ticket dataset.
 - **Statuses:** Open, In Progress, Escalated, Resolved, and Closed.
-- **Escalation weights:** 20% escalated and 80% non-escalated during generation.
-- **Escalation acceptance range:** 10–30% of tickets.
+- **Status assignment weights:** A ticket is Escalated exactly when its Boolean escalation flag is true. Non-escalated tickets are distributed evenly and cyclically across Open, In Progress, Resolved, and Closed (25% each among non-escalated tickets).
+- **Escalation flag weight:** 20% true / 80% false per random draw during generation.
+- **Escalation acceptance range:** 10–30% of tickets; the generator retries subsequent seeds until the generated sample is inside this range.
 - **Ticket age:** 0–30 days.
 - **Resolution time:** 0.5–120 hours.
 - **Record identifiers:** Generated IDs such as `OLA-0001`.
@@ -129,7 +130,7 @@ The validated default run used seed `42` and produced:
 - 50 tickets.
 - 10 tickets in each category.
 - All five required statuses.
-- 6 escalated tickets, corresponding to a 12% escalation rate.
+- 6 escalated tickets, corresponding to a 12% escalation rate; the other four statuses each contain 11 tickets in this run.
 - Ticket ages within 0–30 days.
 - Resolution times within 0.5–120 hours.
 
