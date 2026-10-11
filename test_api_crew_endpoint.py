@@ -30,8 +30,19 @@ class FakeVerdict:
 
 
 class FakeCrew:
+    def __init__(self, result_log, execution_log):
+        self.result_log = result_log
+        self.execution_log = execution_log
+
     def kickoff(self, inputs):
         self.inputs = inputs
+        self.result_log["policy"] = {
+            "answer": "Critical tickets receive the highest priority.",
+            "sources": ["ticket_priority.md"],
+            "fallback": False,
+        }
+        self.result_log["ticket"] = {}
+        self.execution_log.append("search_support_policies")
         return "Critical tickets receive the highest priority. Source: ticket_priority.md"
 
 
@@ -49,7 +60,7 @@ class CrewApiContractTests(unittest.TestCase):
         crew_module = types.ModuleType("crew_support")
         crew_module.TOOL_EXECUTION_LOG = execution_log
         crew_module.TOOL_RESULT_LOG = result_log
-        crew_module.build_support_crew = FakeCrew
+        crew_module.build_support_crew = lambda: FakeCrew(result_log, execution_log)
         crew_module.validate_crew_response = lambda raw: types.SimpleNamespace(
             answer=raw,
             mode="MOCK_LLM",
