@@ -251,6 +251,7 @@ if __name__ == "__main__":
             assert validated.mode == "MOCK_LLM"
         except Exception as exc:
             print(f"CrewAI kickoff/validation failed: {type(exc).__name__}: {exc}")
+            raise
 
     print("\nRunning explicit offline tool verification...")
     print(json.dumps(
