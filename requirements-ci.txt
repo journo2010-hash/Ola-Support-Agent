@@ -1,0 +1,3 @@
+pydantic==2.12.5
+langchain-core==1.6.9
+autogen-agentchat==0.7.5
