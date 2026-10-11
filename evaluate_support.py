@@ -361,7 +361,7 @@ def run_mock_llm_judge(prompt):
     if "accuracy" not in prompt.lower() or "grounding" not in prompt.lower():
         raise ValueError("The judge prompt is missing required scoring criteria.")
 
-    marker = "TEST CASE AND RESPONSE:\\n"
+    marker = "TEST CASE AND RESPONSE:\n"
     if marker not in prompt:
         raise ValueError("The judge prompt is missing its case and response.")
     payload = prompt.split(marker, maxsplit=1)[1]
