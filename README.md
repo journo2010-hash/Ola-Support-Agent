@@ -20,7 +20,7 @@ A capstone project demonstrating an AI-assisted customer-support workflow using 
 - **Governance:** Rule-based risk classification, autonomy decisions, and human-review requirements for sensitive requests.
 - **Response cache:** In-memory response caching with a time-to-live and normalized query keys.
 - **Structured logging:** JSONL request logs designed to avoid recording raw question text or unmasked phone numbers.
-- **FastAPI:** HTTP endpoints and WebSocket support.
+- **FastAPI:** HTTP endpoints and WebSocket support, including a CrewAI-backed endpoint that passes the crew draft through AutoGen review.
 - **Evaluation:** A 15-case support evaluation and CSV output, plus a separate RAG chunking comparison.
 - **AutoGen review:** Two-agent review demonstration with structured Pydantic verdicts.
 
@@ -53,7 +53,7 @@ A capstone project demonstrating an AI-assisted customer-support workflow using 
 | `governance.py` | Rule-based risk classification and autonomy decisions |
 | `response_models.py` | Structured response validation |
 | `support_agents.py` | Support-agent definitions |
-| `api.py` | FastAPI application, HTTP endpoints, WebSocket, and JSONL logging |
+| `api.py` | FastAPI application, mock workflow endpoints, CrewAI-backed `/ask-crew`, WebSocket, and JSONL logging |
 | `evaluate_support.py` | Runs the 15-case support evaluation |
 | `evaluation_results.csv` | Generated support evaluation results |
 | `autogen_review.py` | AutoGen review demonstration |
@@ -336,13 +336,14 @@ Open the interactive API documentation:
 The application includes:
 
 - `GET /` — basic service information.
-- `POST /ask` — submits a support question.
+- `POST /ask` — submits a support question to the deterministic workflow with session memory, caching, and governance controls.
+- `POST /ask-crew` — invokes the actual three-agent CrewAI crew through `.kickoff()`, then passes the draft and retrieved context to the AutoGen review stage.
 - `POST /add-document` — adds a document through the API.
 - `WS /ws` — provides a WebSocket support interaction.
 
 The WebSocket implementation handles normal client disconnection using `WebSocketDisconnect` and offloads workflow execution to avoid blocking the asynchronous connection.
 
-The CrewAI entry point validates each `.kickoff()` result through `SupportResponse` from `response_models.py`. It runs separate policy and ticket queries and prints the actual tool-execution log for each query. It also prints per-agent tool assignments so the least-autonomy design is visible: only the ticket lookup specialist receives the ticket lookup tool; the composer receives no tools.
+The CrewAI entry point validates each `.kickoff()` result through `SupportResponse` from `response_models.py`. It runs separate policy and ticket queries and prints the actual tool-execution log for each query. It also prints per-agent tool assignments so the least-autonomy design is visible: only the ticket lookup specialist receives the ticket lookup tool; the composer receives no tools. The additional `POST /ask-crew` endpoint uses this same crew and invokes AutoGen review after the draft is produced; `POST /ask` remains the lighter deterministic workflow used for cache, memory, and control demonstrations.
 
 ### WebSocket test
 
