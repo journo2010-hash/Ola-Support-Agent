@@ -9,6 +9,7 @@ import asyncio
 import contextlib
 import io
 import json
+import re
 import os
 from pathlib import Path
 from typing import Any, AsyncGenerator, Sequence
@@ -174,11 +175,18 @@ class LocalMockClient(ChatCompletionClient):
 
 
 def _extract_draft(messages: Sequence[LLMMessage]) -> str:
-    """Return the latest writer draft from the model conversation."""
+    """Return the draft supplied to the review team."""
     for message in reversed(messages):
         content = str(message.content)
-        if "support policy answer:" in content.lower():
-            return content
+        match = re.search(
+            r"Draft answer:\\s*(.*?)(?:\\nReviewer instructions:|$)",
+            content,
+            re.IGNORECASE | re.DOTALL,
+        )
+        if match:
+            return match.group(1).strip()
+        if content.lower().startswith("support policy answer:"):
+            return content.strip()
     return ""
 
 
@@ -279,6 +287,62 @@ async def run_scenario(scenario: str) -> tuple[str, VerdictModel]:
     print("FINAL ANSWER:", verdict.final_answer)
     print(f"SCENARIO TEST: PASSED ({scenario})")
     return draft, verdict
+
+
+async def review_draft(draft: str, retrieved_context: str) -> VerdictModel:
+    """Review a CrewAI draft against its original retrieved context.
+
+    This entry point is used by the API so the AutoGen review follows the
+    CrewAI draft instead of running only as a separate demonstration.
+    """
+    context = retrieved_context.strip() or "No policy context was retrieved."
+    task = (
+        f"Original retrieved context:\\n{context}\\n\\n"
+        f"Draft answer: {draft.strip()}\\n"
+        "Reviewer instructions: Compare the draft with the original retrieved "
+        "context. Approve it unchanged if supported. If it contains a claim "
+        "that the context does not support, remove or qualify that claim. "
+        "Return approved, final_answer, and reason."
+    )
+
+    reviewer = AssistantAgent(
+        name="Policy_Compliance_Reviewer",
+        description="Checks the CrewAI draft against retrieved policy context.",
+        model_client=LocalMockClient("reviewer"),
+        system_message=(
+            "Review the supplied draft against the original retrieved context. "
+            "Do not add new policy claims. Return a structured verdict."
+        ),
+        output_content_type=VerdictModel,
+    )
+    final_editor = AssistantAgent(
+        name="Final_Editor",
+        description="Returns the reviewed answer to the API.",
+        model_client=LocalMockClient("reviewer"),
+        system_message=(
+            "Return the final structured verdict. Preserve an approved draft "
+            "unchanged. Do not add claims that are absent from the context."
+        ),
+        output_content_type=VerdictModel,
+    )
+    team = RoundRobinGroupChat(
+        participants=[reviewer, final_editor],
+        max_turns=2,
+        custom_message_types=[StructuredMessage[VerdictModel]],
+    )
+    result = await team.run(task=task)
+    verdicts = [
+        message.content
+        for message in result.messages
+        if isinstance(message, StructuredMessage)
+        and isinstance(message.content, VerdictModel)
+    ]
+    if not verdicts:
+        raise RuntimeError("AutoGen review did not return a structured verdict.")
+    verdict = verdicts[-1]
+    if verdict.approved and verdict.final_answer != draft.strip():
+        raise AssertionError("An approved draft must remain unchanged.")
+    return verdict
 
 
 async def main() -> None:
