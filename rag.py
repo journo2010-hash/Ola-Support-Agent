@@ -10,9 +10,15 @@ Hybrid ranking:
     25% lexical keyword overlap
 """
 
+import os
 import re
 from pathlib import Path
 from statistics import median
+
+# Graded RAG runs must never attempt to download a model. The embedding
+# model must be present in the local Hugging Face cache before offline grading.
+os.environ["HF_HUB_OFFLINE"] = "1"
+os.environ["TRANSFORMERS_OFFLINE"] = "1"
 
 import chromadb
 from sentence_transformers import SentenceTransformer
