@@ -1,0 +1,26 @@
+OLA SUPPORT AGENT — DETERMINISTIC CONTROL EVIDENCE
+Mode: MOCK_LLM; ticket-only demonstrations; no model/API call.
+
+1. NORMALIZED QUERY CACHE
+First answer: Ticket OLA-0001 is currently Open.
+Counters after first request: {'workflow_calls': 1, 'cache_hits': 0, 'cache_misses': 1, 'policy_tool_calls': 0, 'ticket_tool_calls': 1, 'rejected_oversized_requests': 0, 'rejected_budget_requests': 0, 'estimated_input_tokens_total': 10, 'estimated_mock_cost_usd_total': 1e-05}
+Second response cache_hit: True
+Counters after second request: {'workflow_calls': 2, 'cache_hits': 1, 'cache_misses': 1, 'policy_tool_calls': 0, 'ticket_tool_calls': 1, 'rejected_oversized_requests': 0, 'rejected_budget_requests': 0, 'estimated_input_tokens_total': 20, 'estimated_mock_cost_usd_total': 2e-05}
+PASS: repeated normalized query hit cache; no redundant ticket tool call.
+
+2. SESSION MEMORY CARRYOVER AND RESET
+Turn 1: Ticket OLA-0001 is currently Open.
+Turn 2: Ticket OLA-0001 is currently Open. Escalation score: 0.173. Priority review flag: False.
+After reset: I couldn't resolve the ticket reference in this session. Please provide a ticket ID such as OLA-0001.
+Fresh session: I couldn't resolve the ticket reference in this session. Please provide a ticket ID such as OLA-0001.
+PASS: ticket context carries across turns and disappears after reset.
+
+3. INPUT TOKEN AND ILLUSTRATIVE COST BUDGETS
+Oversized request response: Your request exceeds the supported input-token limit. Please shorten it and try again.
+Oversized request governance: {'risk_level': 'high', 'autonomy_level': 'blocked', 'allowed': False, 'requires_human_review': False, 'reason': 'The request exceeded the configured input-token limit.', 'max_input_tokens': 400, 'estimated_input_tokens': 405, 'estimated_mock_cost_usd': 0.000405, 'max_request_cost_usd': 0.0003}
+Over-budget response: Your request exceeds the configured per-request budget. Please shorten it and try again.
+Over-budget governance: {'risk_level': 'high', 'autonomy_level': 'blocked', 'allowed': False, 'requires_human_review': False, 'reason': 'The illustrative per-request cost budget was exceeded.', 'estimated_input_tokens': 301, 'estimated_mock_cost_usd': 0.000301, 'max_request_cost_usd': 0.0003}
+Budget counters: {'workflow_calls': 2, 'cache_hits': 0, 'cache_misses': 0, 'policy_tool_calls': 0, 'ticket_tool_calls': 0, 'rejected_oversized_requests': 1, 'rejected_budget_requests': 1, 'estimated_input_tokens_total': 706, 'estimated_mock_cost_usd_total': 0.000706}
+NOTE: the displayed cost is a synthetic local budget unit used only to exercise the cap. MOCK_LLM makes no billable provider calls.
+
+ALL CONTROL DEMONSTRATIONS PASSED
