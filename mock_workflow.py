@@ -6,7 +6,7 @@ from typing import Any, Optional
 
 from pydantic import BaseModel, Field
 
-from guardrails import check_input
+from guardrails import check_input, enforce_output_grounding, mask_phone_numbers
 from governance import classify_request
 from session_memory import SessionMemory
 from ticket_lookup import check_support_ticket_status
@@ -300,10 +300,17 @@ def search_support_policies(question: str) -> dict[str, Any]:
     ):
         fallback = True
 
+    guarded = enforce_output_grounding(
+        answer=answer.strip(),
+        sources=sources,
+        fallback=fallback,
+    )
     return {
-        "answer": answer.strip(),
-        "sources": sources,
-        "fallback": fallback,
+        "answer": guarded["answer"],
+        "sources": guarded["sources"],
+        "fallback": guarded["fallback"],
+        "grounded": guarded["grounded"],
+        "grounding_guard_reason": guarded["reason"],
     }
 
 
@@ -351,7 +358,7 @@ def run_support_workflow(
     if input_tokens > MAX_INPUT_TOKENS:
         WORKFLOW_METRICS["rejected_oversized_requests"] += 1
         return _make_response(
-            question=original_question[:500],
+            question=mask_phone_numbers(original_question)[:500],
             answer=(
                 "Your request exceeds the supported input-token limit. "
                 "Please shorten it and try again."
@@ -373,7 +380,7 @@ def run_support_workflow(
     if estimated_cost > MAX_REQUEST_COST_USD:
         WORKFLOW_METRICS["rejected_budget_requests"] += 1
         return _make_response(
-            question=original_question[:500],
+            question=mask_phone_numbers(original_question)[:500],
             answer=(
                 "Your request exceeds the configured per-request budget. "
                 "Please shorten it and try again."
