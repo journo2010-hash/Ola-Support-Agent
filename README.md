@@ -29,7 +29,10 @@ A capstone project demonstrating an AI-assisted customer-support workflow using 
 | `dataset.py` | Generates and validates synthetic support tickets |
 | `rag.py` | Knowledge-base loading, chunking, embeddings, retrieval, and threshold calibration |
 | `rag_tfidf.py` | Alternative TF-IDF retrieval implementation |
-| `ticket_lookup.py` | Ticket status lookup and escalation scoring |
+| `ticket_lookup.py` | Ticket status lookup and dataset-calibrated escalation scoring |
+| `run_capstone_evidence.py` | Reproducible cache, session-memory, and request-budget transcript |
+| `test_workflow_controls.py` | Cache, session-context, token-limit, and budget regression tests |
+| `test_autogen_review.py` | Structured AutoGen approval/revision regression tests |
 | `crew_support.py` | CrewAI agents, tasks, and tools |
 | `mock_llm.py` | Deterministic mock language model for local testing |
 | `mock_workflow.py` | Support workflow, memory, guardrails, caching, and governance integration |
@@ -56,6 +59,15 @@ A capstone project demonstrating an AI-assisted customer-support workflow using 
 - Dependencies listed in `requirements.txt`
 
 The project uses CrewAI, ChromaDB, SentenceTransformers, LangChain, FastAPI, Pydantic, AutoGen, and related packages.
+
+Before graded CrewAI runs, disable telemetry explicitly in PowerShell:
+
+```powershell
+$env:CREWAI_DISABLE_TELEMETRY = "true"
+$env:OTEL_SDK_DISABLED = "true"
+```
+
+The CrewAI and AutoGen demo scripts also set these environment variables before initializing their agent frameworks.
 
 ## Installation on Windows
 
@@ -219,20 +231,25 @@ check_support_ticket_status(record_id)
 
 The function returns ticket status, resolution time, and an escalation score between 0 and 1. The score combines escalation status with normalized ticket recency.
 
-The score is a demonstration metric, not a calibrated probability of escalation. Interpret it according to the formula implemented in the source code.
+The score is a transparent triage heuristic, not a calibrated probability:
+`score = 0.60 × escalated_boolean + 0.40 × (1 − days_since_created / 30)`.
+The implementation computes a nearest-rank **80th-percentile threshold from the generated dataset's own score distribution** and returns `priority_review_flag` when the score meets that threshold. Ties can cause slightly more than 20% of tickets to be flagged; the score must not be described as a probability.
 
 ## Session memory and structured responses
 
 The session-memory implementation uses LangChain message-history components to maintain conversation history across turns.
 
-The demonstration covers:
+The workflow stores messages in LangChain's `InMemoryChatMessageHistory`. When a follow-up asks about “its” status, score, or resolution, the workflow resolves a ticket ID only from that same session's recent history. A fresh session has no such context, and resetting a session removes its conversation history.
 
-- Adding user and assistant messages.
-- Retrieving history for a session.
-- Keeping different sessions isolated.
-- Clearing a session to start fresh.
+Run the deterministic carryover/reset and cache/budget evidence demonstration:
 
-Pydantic models validate structured support responses and AutoGen review verdicts. Session history is maintained in memory and is not durable production storage.
+```powershell
+python run_capstone_evidence.py
+```
+
+The script writes its actual console output to `evidence/capstone_controls_transcript.txt`. It demonstrates a ticket lookup followed by an escalation-score follow-up, then shows that a fresh or reset session cannot resolve the pronoun without a ticket ID. It also prints counters before and after a normalized-query cache hit and verifies that the second identical query does not call the ticket tool again.
+
+Pydantic models validate structured support responses and AutoGen review verdicts. Session history is in memory and is not durable production storage.
 
 ## Guardrails and privacy
 
@@ -316,7 +333,9 @@ The API writes structured JSONL request logs containing trace identifiers, timin
 
 The implementation is designed not to record raw question text or unmasked phone numbers. Review generated logs before sharing or committing them.
 
-The local response cache uses normalized query keys and a time-to-live. It demonstrates repeated-query caching but is not a distributed or persistent cache.
+The local response cache uses **normalized query text** as its key, independent of session ID, and has a time-to-live. `get_workflow_metrics()` exposes cache hits/misses and tool-call counters so the cache behavior can be verified empirically. It is not a distributed or persistent cache.
+
+The request guard also enforces an approximate input-token limit and an illustrative per-request budget in `MOCK_LLM` mode. The synthetic budget rate is only for exercising the control path; it is **not a real model-provider price**, and the mock workflow makes no billable model calls.
 
 ## Support evaluation
 
@@ -364,6 +383,17 @@ It demonstrates two scenarios:
 
 The recorded scenario tests passed for both outcomes.
 
+The structured schema is `VerdictModel(approved: bool, final_answer: str, reason: str)`; the `Final-Editor` uses `output_content_type=VerdictModel`, and the team registers `StructuredMessage[VerdictModel]` with `max_turns=2`. The approval scenario asserts the final answer is unchanged. The revision scenario injects an unsupported 10-minute guarantee and asserts the final answer removes that claim.
+
+Run the focused regression tests:
+
+```powershell
+python -m unittest test_autogen_review.py -v
+python -m unittest test_workflow_controls.py -v
+```
+
+Running `python autogen_review.py` writes the real run output to `evidence/autogen_review_transcript.txt`.
+
 This is a deterministic mock demonstration, not an evaluation of a production language model.
 
 ## Dependency and regression checks
@@ -386,6 +416,9 @@ Run the main checks individually:
 python dataset.py
 python -m unittest test_governance.py -v
 python test_guardrails.py
+python -m unittest test_workflow_controls.py -v
+python -m unittest test_autogen_review.py -v
+python run_capstone_evidence.py
 python rag.py
 python evaluate_support.py
 python crew_support.py
