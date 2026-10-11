@@ -522,7 +522,7 @@ def run_support_workflow(
     # Do not send this ticket-specific follow-up to policy RAG.
     unresolved_ticket_reference = bool(
         re.search(
-            r"\\b(it|its|that ticket|this ticket|the ticket)\\b",
+            r"\b(it|its|that ticket|this ticket|the ticket)\b",
             safe_question,
             re.IGNORECASE,
         )
