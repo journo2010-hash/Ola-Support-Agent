@@ -81,15 +81,13 @@ $body = @{
 } | ConvertTo-Json
 
 Invoke-RestMethod `
-  -Uri "http://127.0.0.1:8001/ask" `
+  -Uri "http://127.0.0.1:8001/ask-crew" `
   -Method Post `
   -ContentType "application/json" `
   -Body $body
 ```
 
-**Explain:** The response should contain policy information, source
-filename `ticket_priority.md`, the tool used, and a LOW-risk, READ_ONLY
-governance decision.
+**Explain:** This endpoint runs the three-agent CrewAI crew and then returns the AutoGen review verdict. The response should contain policy information, a source filename, the tools used, and a LOW-risk, READ_ONLY governance decision.
 
 #### Demo B --- Ticket lookup
 
@@ -99,14 +97,13 @@ $body = @{
 } | ConvertTo-Json
 
 Invoke-RestMethod `
-  -Uri "http://127.0.0.1:8001/ask" `
+  -Uri "http://127.0.0.1:8001/ask-crew" `
   -Method Post `
   -ContentType "application/json" `
   -Body $body
 ```
 
-**Explain:** The prototype retrieves ticket status and related fields
-from its ticket lookup tool/data source.
+**Explain:** The CrewAI lookup agent retrieves ticket status and related fields. The response also includes the structured AutoGen review result.
 
 #### Demo C --- Refund safety control
 
@@ -151,12 +148,17 @@ verified through API testing.
 
 **Say:**
 
-I validated the prototype through Python syntax checks, nine governance
-unit tests, four guardrail regression tests, CrewAI tool-execution
-verification, HTTP endpoint tests, and WebSocket testing.
+I validated the offline controls through Python compilation and a green
+GitHub Actions smoke-test run. The regression suite covers nine governance
+tests, four workflow-control tests, three ticket-score tests, three
+output-grounding tests, API trace/log privacy, and two AutoGen review
+scenarios, plus four guardrail checks.
 
-The policy retrieval and safety scenarios behaved as expected in these
-tests.
+The deterministic evidence transcripts demonstrate cache hits without
+redundant ticket-tool calls, ticket context carryover and reset, token and
+synthetic budget rejection, an unchanged AutoGen approval, and a real
+revision removing an unsupported claim. The full RAG/CrewAI policy path
+still requires the SentenceTransformer model to be pre-cached locally.
 
 The evaluation framework also runs 15 test cases. Its scores are
 heuristic indicators, so they should not be interpreted as independent

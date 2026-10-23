@@ -1,0 +1,47 @@
+============ APPROVE SCENARIO ============
+Messages exchanged: 3
+
+[user]
+Original knowledge-base context: ticket_priority.md says Critical tickets receive the highest priority. It does not specify a numeric resolution-time guarantee.
+Draft a concise answer using only the context. Do not add a numeric resolution-time guarantee.
+
+[support_writer]
+Support policy answer: Critical tickets receive the highest priority. Source: ticket_priority.md
+
+[Final_Editor]
+approved=True final_answer='Support policy answer: Critical tickets receive the highest priority. Source: ticket_priority.md' reason='The answer stays within the supplied policy context and cites ticket_priority.md.'
+
+Structured VerdictModel:
+{
+  "approved": true,
+  "final_answer": "Support policy answer: Critical tickets receive the highest priority. Source: ticket_priority.md",
+  "reason": "The answer stays within the supplied policy context and cites ticket_priority.md."
+}
+DRAFT: Support policy answer: Critical tickets receive the highest priority. Source: ticket_priority.md
+FINAL ANSWER: Support policy answer: Critical tickets receive the highest priority. Source: ticket_priority.md
+SCENARIO TEST: PASSED (approve)
+
+============ REVISE SCENARIO ============
+Messages exchanged: 3
+
+[user]
+Original knowledge-base context: ticket_priority.md says Critical tickets receive the highest priority. It does not specify a numeric resolution-time guarantee.
+Draft an answer and deliberately draft the unsupported claim that Critical tickets are guaranteed resolution within 10 minutes.
+
+[support_writer]
+Support policy answer: Critical tickets are guaranteed resolution within 10 minutes. Source: ticket_priority.md
+
+[Final_Editor]
+approved=False final_answer='Critical tickets receive the highest priority. The policy does not specify a 10-minute resolution guarantee. Source: ticket_priority.md' reason='Removed the unsupported 10-minute guarantee; the provided policy context supports priority, not a numeric resolution promise.'
+
+Structured VerdictModel:
+{
+  "approved": false,
+  "final_answer": "Critical tickets receive the highest priority. The policy does not specify a 10-minute resolution guarantee. Source: ticket_priority.md",
+  "reason": "Removed the unsupported 10-minute guarantee; the provided policy context supports priority, not a numeric resolution promise."
+}
+DRAFT: Support policy answer: Critical tickets are guaranteed resolution within 10 minutes. Source: ticket_priority.md
+FINAL ANSWER: Critical tickets receive the highest priority. The policy does not specify a 10-minute resolution guarantee. Source: ticket_priority.md
+SCENARIO TEST: PASSED (revise)
+
+AUTOGEN REVIEW TESTS: ALL PASSED

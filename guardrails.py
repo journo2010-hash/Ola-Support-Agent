@@ -99,3 +99,43 @@ if __name__ == "__main__":
     assert injection_result.blocked
 
     print("\nGUARDRAIL TESTS: SUCCESS")
+
+
+
+def enforce_output_grounding(
+    answer: str,
+    sources: list[str] | None,
+    fallback: bool = False,
+) -> dict:
+    """Fail closed when a non-fallback answer has no retrieved source evidence."""
+    normalized_sources = [
+        str(source).strip()
+        for source in (sources or [])
+        if str(source).strip()
+    ]
+
+    if fallback:
+        return {
+            "answer": answer or "I don't know based on the available support policies.",
+            "sources": normalized_sources,
+            "fallback": True,
+            "grounded": bool(normalized_sources),
+            "reason": "The retrieval workflow already selected its fallback path.",
+        }
+
+    if not normalized_sources:
+        return {
+            "answer": "I don't know based on the available support policies.",
+            "sources": [],
+            "fallback": True,
+            "grounded": False,
+            "reason": "Non-fallback answer rejected because no source evidence was supplied.",
+        }
+
+    return {
+        "answer": answer,
+        "sources": normalized_sources,
+        "fallback": False,
+        "grounded": True,
+        "reason": "At least one retrieved source was supplied with the answer.",
+    }

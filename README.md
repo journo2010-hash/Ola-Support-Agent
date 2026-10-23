@@ -1,6 +1,8 @@
 
 # Ola Domain Support Agent — CrewAI
 
+**Completed track: Ola (Business Operations / Customer Support).**
+
 A capstone project demonstrating an AI-assisted customer-support workflow using a synthetic ticket dataset, a Markdown knowledge base, retrieval-augmented generation (RAG), CrewAI agents, session memory, guardrails, governance controls, a FastAPI interface, and an AutoGen review workflow.
 
 > **Important:** The knowledge-base policies and ticket records are illustrative test data. They are not official Ola policies or real customer records.
@@ -18,7 +20,7 @@ A capstone project demonstrating an AI-assisted customer-support workflow using 
 - **Governance:** Rule-based risk classification, autonomy decisions, and human-review requirements for sensitive requests.
 - **Response cache:** In-memory response caching with a time-to-live and normalized query keys.
 - **Structured logging:** JSONL request logs designed to avoid recording raw question text or unmasked phone numbers.
-- **FastAPI:** HTTP endpoints and WebSocket support.
+- **FastAPI:** HTTP endpoints and WebSocket support, including a CrewAI-backed endpoint that passes the crew draft through AutoGen review.
 - **Evaluation:** A 15-case support evaluation and CSV output, plus a separate RAG chunking comparison.
 - **AutoGen review:** Two-agent review demonstration with structured Pydantic verdicts.
 
@@ -29,7 +31,19 @@ A capstone project demonstrating an AI-assisted customer-support workflow using 
 | `dataset.py` | Generates and validates synthetic support tickets |
 | `rag.py` | Knowledge-base loading, chunking, embeddings, retrieval, and threshold calibration |
 | `rag_tfidf.py` | Alternative TF-IDF retrieval implementation |
-| `ticket_lookup.py` | Ticket status lookup and escalation scoring |
+| `ticket_lookup.py` | Ticket status lookup and dataset-calibrated escalation scoring |
+| `run_capstone_evidence.py` | Reproducible cache, session-memory, and request-budget transcript |
+| `test_workflow_controls.py` | Cache, session-context, token-limit, and budget regression tests |
+| `test_autogen_review.py` | Structured AutoGen approval/revision regression tests |
+| `test_ticket_lookup.py` | Escalation-score formula and percentile-threshold tests |
+| `test_output_grounding.py` | Output-grounding guard regression tests |
+| `test_api_logging.py` | One-log-per-request, trace ID, and PII-safe API logging tests |
+| `requirements-ci.txt` | Minimal offline test dependencies |
+| `.github/workflows/capstone-smoke.yml` | Deterministic smoke-test workflow |
+| `CAPSTONE_RUBRIC_CHECKLIST.md` | Rubric-to-implementation and evidence checklist |
+| `CAPSTONE_DEMO_GUIDE.md` | Five-minute demo script and evaluator Q&A |
+| `evidence/autogen_review_transcript.txt` | Actual CI output for unchanged approval and grounded revision |
+| `evidence/capstone_controls_transcript.txt` | Actual CI output for cache, session carryover/reset, and budget controls |
 | `crew_support.py` | CrewAI agents, tasks, and tools |
 | `mock_llm.py` | Deterministic mock language model for local testing |
 | `mock_workflow.py` | Support workflow, memory, guardrails, caching, and governance integration |
@@ -38,7 +52,7 @@ A capstone project demonstrating an AI-assisted customer-support workflow using 
 | `governance.py` | Rule-based risk classification and autonomy decisions |
 | `response_models.py` | Structured response validation |
 | `support_agents.py` | Support-agent definitions |
-| `api.py` | FastAPI application, HTTP endpoints, WebSocket, and JSONL logging |
+| `api.py` | FastAPI application, mock workflow endpoints, CrewAI-backed `/ask-crew`, WebSocket, and JSONL logging |
 | `evaluate_support.py` | Runs the 15-case support evaluation |
 | `evaluation_results.csv` | Generated support evaluation results |
 | `autogen_review.py` | AutoGen review demonstration |
@@ -56,6 +70,15 @@ A capstone project demonstrating an AI-assisted customer-support workflow using 
 - Dependencies listed in `requirements.txt`
 
 The project uses CrewAI, ChromaDB, SentenceTransformers, LangChain, FastAPI, Pydantic, AutoGen, and related packages.
+
+Before graded CrewAI runs, disable telemetry explicitly in PowerShell:
+
+```powershell
+$env:CREWAI_DISABLE_TELEMETRY = "true"
+$env:OTEL_SDK_DISABLED = "true"
+```
+
+The CrewAI and AutoGen demo scripts also set these environment variables before initializing their agent frameworks.
 
 ## Installation on Windows
 
@@ -92,10 +115,11 @@ These commands describe a fresh installation. If the project and its virtual env
 The default dataset contains 50 synthetic support tickets. The generator uses Python's seeded random generator and starts with a base seed of `42`.
 
 - **Categories:** Billing, Technical Issue, Account Access, Product Defect, and General Inquiry.
-- **Category distribution:** 10 tickets per category in the default dataset.
+- **Category weights/distribution:** Equal category weighting (20% each); 10 tickets per category in the default 50-ticket dataset.
 - **Statuses:** Open, In Progress, Escalated, Resolved, and Closed.
-- **Escalation weights:** 20% escalated and 80% non-escalated during generation.
-- **Escalation acceptance range:** 10–30% of tickets.
+- **Status assignment weights:** A ticket is Escalated exactly when its Boolean escalation flag is true. Non-escalated tickets are distributed evenly and cyclically across Open, In Progress, Resolved, and Closed (25% each among non-escalated tickets).
+- **Escalation flag weight:** 20% true / 80% false per random draw during generation.
+- **Escalation acceptance range:** 10–30% of tickets; the generator retries subsequent seeds until the generated sample is inside this range.
 - **Ticket age:** 0–30 days.
 - **Resolution time:** 0.5–120 hours.
 - **Record identifiers:** Generated IDs such as `OLA-0001`.
@@ -108,7 +132,7 @@ The validated default run used seed `42` and produced:
 - 50 tickets.
 - 10 tickets in each category.
 - All five required statuses.
-- 6 escalated tickets, corresponding to a 12% escalation rate.
+- 6 escalated tickets, corresponding to a 12% escalation rate; the other four statuses each contain 11 tickets in this run.
 - Ticket ages within 0–30 days.
 - Resolution times within 0.5–120 hours.
 
@@ -148,12 +172,26 @@ The RAG implementation compares two document chunking strategies:
 
 Both approaches use local SentenceTransformer embeddings and separate ChromaDB collections. The implementation uses `collection.upsert()` to index generated chunks.
 
+For graded runs, `rag.py` forces Hugging Face/Transformers offline mode. Ensure `sentence-transformers/all-MiniLM-L6-v2` is already present in the local model cache before running RAG, CrewAI policy retrieval, or the full support evaluation; the application will not download it at runtime.
+
 Hybrid retrieval combines:
 
 - 75% semantic similarity.
 - 25% lexical keyword overlap.
 
 A similarity threshold is calibrated using in-scope and out-of-scope examples. The system returns an uncertainty fallback when the retrieved evidence does not meet the configured threshold.
+
+### Threshold calibration results
+
+The latest recorded calibration run for the recommended sentence-based collection measured these top-1 cosine similarities:
+
+- **In-scope queries:** 0.5988, 0.4180, 0.5441, 0.6245, and 0.6674.
+- **Out-of-scope queries:** 0.0704 and 0.0451.
+- **Highest out-of-scope score:** 0.0704.
+- **Lowest in-scope score:** 0.4180.
+- **Selected sentence-based threshold:** 0.2442, the midpoint between 0.0704 and 0.4180.
+
+The fixed-overlap collection selected a threshold of **0.2378** in the same calibration run. The sentence-based threshold of 0.2442 is used by `initialize_support_rag()` for the support workflow. These values are specific to the listed queries and the local embedding model; they should be recalibrated if the knowledge base, model, or query set changes.
 
 Run the RAG demonstration:
 
@@ -170,7 +208,7 @@ The current five-query document-level evaluation produced the following results:
 | Mean document-level precision | 1.000 | 1.000 |
 | Mean document-level recall | 1.000 | 1.000 |
 
-Both strategies retrieved the expected document for all five tested queries. They tie on the current metrics; these results do not establish that either strategy is universally better.
+Both strategies retrieved the expected document for all five tested queries, giving each a mean document-level precision of `1.000` and recall of `1.000`. I recommend keeping sentence-based chunking as the default for its fine-grained source units while retaining fixed-overlap as a comparison; this is an implementation preference, not evidence that it is more accurate. Expand the query set before claiming a performance advantage.
 
 The threshold calibration tested five in-scope queries and two out-of-scope questions. The selected thresholds separated the observed scores in this small sample.
 
@@ -219,20 +257,25 @@ check_support_ticket_status(record_id)
 
 The function returns ticket status, resolution time, and an escalation score between 0 and 1. The score combines escalation status with normalized ticket recency.
 
-The score is a demonstration metric, not a calibrated probability of escalation. Interpret it according to the formula implemented in the source code.
+The score is a transparent triage heuristic, not a calibrated probability:
+`score = 0.60 × escalated_boolean + 0.40 × (1 − days_since_created / 30)`.
+The implementation computes a nearest-rank **80th-percentile threshold from the generated dataset's own score distribution** and returns `priority_review_flag` when the score meets that threshold. Ties can cause slightly more than 20% of tickets to be flagged; the score must not be described as a probability.
 
 ## Session memory and structured responses
 
 The session-memory implementation uses LangChain message-history components to maintain conversation history across turns.
 
-The demonstration covers:
+The workflow stores messages in LangChain's `InMemoryChatMessageHistory`. When a follow-up asks about “its” status, score, or resolution, the workflow resolves a ticket ID only from that same session's recent history. A fresh session has no such context, and resetting a session removes its conversation history.
 
-- Adding user and assistant messages.
-- Retrieving history for a session.
-- Keeping different sessions isolated.
-- Clearing a session to start fresh.
+Run the deterministic carryover/reset and cache/budget evidence demonstration:
 
-Pydantic models validate structured support responses and AutoGen review verdicts. Session history is maintained in memory and is not durable production storage.
+```powershell
+python run_capstone_evidence.py
+```
+
+The script writes its actual console output to `evidence/capstone_controls_transcript.txt`. The checked-in transcript was captured from a successful deterministic CI run; the CI workflow also uploads both transcript files as the `capstone-text-evidence` artifact. It demonstrates a ticket lookup followed by an escalation-score follow-up, then shows that a fresh or reset session cannot resolve the pronoun without a ticket ID. It also prints counters before and after a normalized-query cache hit and verifies that the second identical query does not call the ticket tool again.
+
+Pydantic models validate structured support responses and AutoGen review verdicts. Session history is in memory and is not durable production storage.
 
 ## Guardrails and privacy
 
@@ -292,11 +335,14 @@ Open the interactive API documentation:
 The application includes:
 
 - `GET /` — basic service information.
-- `POST /ask` — submits a support question.
+- `POST /ask` — submits a support question to the deterministic workflow with session memory, caching, and governance controls.
+- `POST /ask-crew` — invokes the actual three-agent CrewAI crew through `.kickoff()`, then passes the draft and retrieved context to the AutoGen review stage.
 - `POST /add-document` — adds a document through the API.
 - `WS /ws` — provides a WebSocket support interaction.
 
 The WebSocket implementation handles normal client disconnection using `WebSocketDisconnect` and offloads workflow execution to avoid blocking the asynchronous connection.
+
+The CrewAI entry point validates each `.kickoff()` result through `SupportResponse` from `response_models.py`. It runs separate policy and ticket queries and prints the actual tool-execution log for each query. It also prints per-agent tool assignments so the least-autonomy design is visible: only the ticket lookup specialist receives the ticket lookup tool; the composer receives no tools. The additional `POST /ask-crew` endpoint uses this same crew and invokes AutoGen review after the draft is produced; `POST /ask` remains the lighter deterministic workflow used for cache, memory, and control demonstrations.
 
 ### WebSocket test
 
@@ -316,7 +362,9 @@ The API writes structured JSONL request logs containing trace identifiers, timin
 
 The implementation is designed not to record raw question text or unmasked phone numbers. Review generated logs before sharing or committing them.
 
-The local response cache uses normalized query keys and a time-to-live. It demonstrates repeated-query caching but is not a distributed or persistent cache.
+The local response cache uses **normalized query text** as its key, independent of session ID, and has a time-to-live. `get_workflow_metrics()` exposes cache hits/misses and tool-call counters so the cache behavior can be verified empirically. It is not a distributed or persistent cache.
+
+The request guard also enforces an approximate input-token limit and an illustrative per-request budget in `MOCK_LLM` mode. The synthetic budget rate is only for exercising the control path; it is **not a real model-provider price**, and the mock workflow makes no billable model calls.
 
 ## Support evaluation
 
@@ -341,7 +389,7 @@ The 15-case evaluation includes:
 
 The evaluation reports accuracy, grounding, completeness, and safety scores per query and averages.
 
-The latest recorded run returned an average score of `1.000` for all four dimensions, and all 15 cases scored `1.0` on each of the four heuristics.
+A previous recorded run returned an average score of `1.000` for all four dimensions, and all 15 cases scored `1.0` on each of the four heuristics. Re-run the evaluation after any code change and use the newly generated CSV as the submission evidence.
 
 **Interpretation limitation:** These scores are based on rule-based heuristic checks, not independent human review or model-independent measurements. They should not be interpreted as proof of perfect answer quality.
 
@@ -362,7 +410,21 @@ It demonstrates two scenarios:
 - **APPROVE:** The response includes a supporting source.
 - **REVISE:** The response is missing a supporting source.
 
-The recorded scenario tests passed for both outcomes.
+Each run asserts both outcomes: the grounded draft must be approved unchanged, and the deliberately ungrounded draft must be revised.
+
+The structured schema is `VerdictModel(approved: bool, final_answer: str, reason: str)`; the `Final-Editor` uses `output_content_type=VerdictModel`, and the team registers `StructuredMessage[VerdictModel]` with `max_turns=2`. The approval scenario asserts the final answer is unchanged. The revision scenario injects an unsupported 10-minute guarantee and asserts the final answer removes that claim.
+
+Run the focused regression tests:
+
+```powershell
+python -m unittest test_autogen_review.py -v
+python -m unittest test_workflow_controls.py -v
+python -m unittest test_ticket_lookup.py -v
+python -m unittest test_output_grounding.py -v
+python -m unittest test_api_logging.py -v
+```
+
+Running `python autogen_review.py` regenerates `evidence/autogen_review_transcript.txt`. The checked-in transcript was captured from a successful deterministic CI run; the CI workflow also uploads the generated transcript files as the `capstone-text-evidence` artifact.
 
 This is a deterministic mock demonstration, not an evaluation of a production language model.
 
@@ -386,6 +448,12 @@ Run the main checks individually:
 python dataset.py
 python -m unittest test_governance.py -v
 python test_guardrails.py
+python -m unittest test_workflow_controls.py -v
+python -m unittest test_ticket_lookup.py -v
+python -m unittest test_output_grounding.py -v
+python -m unittest test_api_logging.py -v
+python -m unittest test_autogen_review.py -v
+python run_capstone_evidence.py
 python rag.py
 python evaluate_support.py
 python crew_support.py
